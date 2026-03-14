@@ -1,0 +1,35 @@
+{
+  "name": "",
+  "short_name": "",
+  "description": "",
+  "start_url": "/index.html",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#1a7a2e",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["food", "shopping"],
+  "shortcuts": [
+    {
+      "name": "Fazer Pedido",
+      "short_name": "Pedido",
+      "url": "/index.html",
+      "icons": [{ "src": "", "sizes": "96x96" }]
+    }
+  ]
+}
