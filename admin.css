@@ -62,6 +62,10 @@ body {
     background: var(--primary);
     color: white;
 }
+.menu-item.active i, .menu-item:hover i {
+    color: white !important;
+    opacity: 1 !important;
+}
 
 .menu-item i {
     width: 20px;
@@ -162,6 +166,27 @@ tr:hover { background: #f9f9f9; }
 .btn-info { background: #3498db; }
 .btn-sm { padding: 5px 10px; font-size: 0.8rem; }
 
+/* ── Tabs tipo "outline → filled" (Ficha Técnica, etc.) ───────
+   Inativo: borda + texto coloridos (legível)
+   Ativo:   fundo preenchido + texto branco               ── */
+.ft-tab-btn {
+    background: #fff;
+    color: var(--primary);
+    border: 2px solid var(--primary);
+}
+.ft-tab-btn:hover:not(.ft-tab-ativo) {
+    background: #e8f5e9;
+    border-color: var(--primary);
+    color: var(--primary);
+    opacity: 1;
+    transform: none;
+}
+.ft-tab-btn.ft-tab-ativo {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+}
+
 .actions-cell { display: flex; gap: 5px; }
 
 /* --- COZINHA --- */
@@ -246,7 +271,7 @@ tr:hover { background: #f9f9f9; }
     right: 15px; 
     width: 36px;
     height: 36px;
-    border-radius: 50%;
+    border-radius: 8px;
     border: none;
     background: #f0f0f0;
     color: #666;
@@ -513,7 +538,7 @@ select.form-control, select.input-modern {
     color: white;
     width: 40px;
     height: 40px;
-    border-radius: 50%;
+    border-radius: 8px;
     text-align: center;
     line-height: 35px;
     font-size: 24px;
@@ -576,184 +601,372 @@ select.form-control, select.input-modern {
 .pdv-view-panel { width: 100%; }
 
 /* CONTAINER PRINCIPAL — Desktop: 2 colunas */
-.pdv-container {
-    display: grid !important;
-    grid-template-columns: 1fr 310px !important;
-    gap: 14px !important;
-    height: calc(100vh - 170px) !important;
-    align-items: start !important;
-}
-
-/* COLUNA ESQUERDA — Produtos */
-.pdv-produtos {
-    grid-column: 1;
-    display: flex;
-    flex-direction: column;
-    height: calc(100vh - 170px);
+/* ═══════════════════════════════════════════════════════════
+   PDV LAYOUT — Desktop grid (matches reference image)
+═══════════════════════════════════════════════════════════ */
+.pdv-layout {
+    display: grid;
+    grid-template-columns: 1fr 330px;
+    height: 100vh;
+    border-radius: 10px;
     overflow: hidden;
-    background: #fff;
-    border-radius: 12px;
-    border: 1px solid #eee;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    border: 1px solid #ccc;
+    gap: 1px;
+    background: #ccc;
 }
 
-/* Barra de filtros de categoria */
-.pdv-cat-filterbar {
+/* ── Left column: Products ──────────────────────────────── */
+.pdv-col-esq {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 10px 12px 8px;
-    border-bottom: 1px solid #f0f0f0;
-    flex-shrink: 0;
+    background: #fff;
+    overflow: hidden;
 }
-.pdv-cat-chips {
+
+/* Category tabs */
+.pdv-cats {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    background: #f0f0f0;
+    border-bottom: 2px solid #ccc;
+    flex-shrink: 0;
 }
 .pdv-cat-chip {
-    padding: 5px 12px;
-    border-radius: 6px;
-    border: 1px solid #e0e0e0;
-    background: #f5f5f5;
-    font-size: 0.76rem;
+    padding: 10px 18px;
+    border: none;
+    border-right: 1px solid #ccc;
+    background: #f0f0f0;
+    font-size: 0.78rem;
     font-weight: 700;
-    color: #555;
+    color: #444;
     cursor: pointer;
-    letter-spacing: 0.4px;
     white-space: nowrap;
-    transition: all 0.12s;
+    letter-spacing: 0.3px;
+    transition: background 0.1s;
+    border-radius: 0;
 }
-.pdv-cat-chip:hover { border-color: var(--primary); color: var(--primary); }
-.pdv-cat-chip.active {
-    background: var(--primary);
-    border-color: var(--primary);
-    color: #fff;
+.pdv-cat-chip:last-child { border-right: none; }
+.pdv-cat-chip:hover { background: #e2e2e2; }
+.pdv-cat-chip.active { background: var(--primary); color: #fff; }
+
+/* Search */
+.pdv-busca-wrap {
+    position: relative;
+    padding: 6px 8px;
+    border-bottom: 1px solid #eee;
+    flex-shrink: 0;
+    background: #fafafa;
+}
+.pdv-busca-icon {
+    position: absolute; left: 16px; top: 50%;
+    transform: translateY(-50%);
+    color: #bbb; font-size: 0.8rem; pointer-events: none;
 }
 .pdv-busca-input {
     width: 100%;
-    padding: 7px 12px;
-    border: 1px solid #e0e0e0;
-    border-radius: 8px;
-    font-size: 0.88rem;
+    padding: 6px 8px 6px 28px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 0.84rem;
     outline: none;
-    transition: border-color 0.15s;
     box-sizing: border-box;
 }
 .pdv-busca-input:focus { border-color: var(--primary); }
 
-/* Grid de produtos — ocupa todo o espaço restante com scroll */
-#pdv-grid {
+/* Mesas bar */
+.pdv-mesas-bar {
+    display: flex; align-items: center; gap: 5px;
+    padding: 3px 8px;
+    background: #f9f9f9;
+    border-bottom: 1px solid #eee;
+    font-size: 0.75rem; color: #666;
+    flex-shrink: 0; min-height: 26px;
+}
+.pdv-mesas-label { font-weight: 700; color: #555; }
+
+/* Scrollable grid */
+.pdv-grid-wrap {
     flex: 1;
     overflow-y: auto;
-    padding: 10px 12px 16px;
+    padding: 8px;
     scrollbar-width: thin;
     scrollbar-color: #ddd transparent;
 }
-#pdv-grid::-webkit-scrollbar { width: 4px; }
-#pdv-grid::-webkit-scrollbar-thumb { background: #ddd; border-radius: 4px; }
+.pdv-grid-wrap::-webkit-scrollbar { width: 4px; }
+.pdv-grid-wrap::-webkit-scrollbar-thumb { background: #ddd; border-radius: 4px; }
 
-.pdv-card {
-    position: relative;
-    aspect-ratio: 1 / 1;
-    border-radius: 10px;
-    cursor: pointer;
-    background-size: cover;
-    background-position: center;
-    background-color: #f0f0f0;
-    border: 2px solid transparent;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    transition: transform 0.12s, box-shadow 0.12s, border-color 0.12s;
-    overflow: hidden;
-    -webkit-tap-highlight-color: transparent;
-}
-.pdv-card-noimg {
-    background: linear-gradient(135deg, #f0f0f0 0%, #e0e0e0 100%);
-    display: flex;
-    align-items: flex-end;
-}
-.pdv-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 16px rgba(0,0,0,0.18);
-    border-color: var(--primary);
-}
-.pdv-card:active { transform: scale(0.95); }
-.pdv-card-price {
-    position: absolute;
-    top: 4px; right: 4px;
-    background: var(--success, #2e7d32);
-    color: white;
-    font-size: 0.7rem;
-    padding: 2px 5px;
-    border-radius: 4px;
-    font-weight: bold;
-}
-.pdv-card-overlay {
-    position: absolute;
-    bottom: 0; left: 0;
-    width: 100%;
-    background: linear-gradient(transparent, rgba(0,0,0,0.78));
-    color: white;
-    padding: 5px 4px 6px;
-    font-size: 0.7rem;
-    text-align: center;
-    font-weight: 600;
-    line-height: 1.2;
-    word-break: break-word;
-}
-
+/* Category header */
 .pdv-cat-header {
-    padding: 4px 0 6px;
-    font-weight: 700;
-    font-size: 0.73rem;
-    color: #888;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    margin-top: 12px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
+    padding: 5px 0 3px;
+    font-weight: 700; font-size: 0.7rem;
+    color: #888; text-transform: uppercase; letter-spacing: 0.8px;
+    margin-top: 6px;
+    display: flex; align-items: center; gap: 6px;
 }
-.pdv-cat-header::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: #eee;
-}
+.pdv-cat-header::after { content:''; flex:1; height:1px; background:#eee; }
+
+/* Product card grid */
 .pdv-cat-row {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-    gap: 8px;
-    margin-bottom: 6px;
+    grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+    gap: 5px;
+    margin-bottom: 4px;
 }
 
-/* COLUNA DIREITA — Carrinho */
-.pdv-carrinho {
-    grid-column: 2;
-    background: #fff;
-    border-radius: 12px;
+/* Card — horizontal: image left, text right */
+.pdv-card {
     display: flex;
     flex-direction: column;
-    padding: 14px;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
-    border: 1px solid #eee;
-    height: calc(100vh - 170px);
-    overflow-y: auto;
-    position: sticky;
-    top: 16px;
+    align-items: stretch;
+    border-radius: 12px;
+    cursor: pointer;
+    background: #fff;
+    border: 1px solid #eaeaea;
+    transition: all 0.2s ease;
+    overflow: hidden;
+    user-select: none;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    min-height: 58px;
 }
+.pdv-card:hover { border-color: var(--primary); transform: translateY(-2px); box-shadow: 0 8px 12px -2px rgba(0, 0, 0, 0.1); }
+.pdv-card:active { transform: translateY(0); opacity: 0.9; }
 
-.pdv-lista-itens {
-    flex: 1;
-    overflow-y: auto;
-    border: 1px dashed #eee;
-    border-radius: 8px;
-    margin-bottom: 10px;
-    padding: 5px;
+.pdv-card-img {
+    width: 100%; min-width: 100px;
+    aspect-ratio: 16 / 10;
+    border-radius: 12px 12px 0 0;
     min-height: 80px;
+    background-size: cover;
+    background-position: center;
+    background-color: #f8f9fa;
+    flex-shrink: 0;
+    border-bottom: 1px solid #eaeaea;
+}
+.pdv-card-img-none {
+    display: flex; align-items: center; justify-content: center;
+    color: #ccc; font-size: 1.2rem;
+    aspect-ratio: 16 / 10;
+}
+.pdv-card-body {
+    padding: 8px 10px;
+    display: flex; flex-direction: column;
+    justify-content: center; gap: 4px;
+    flex: 1; min-width: 0;
+}
+.pdv-card-name { font-size: 0.8rem; font-weight: 700; color: #2d3748; line-height: 1.2; word-break: break-word; }
+.pdv-card-price { font-size: 0.85rem; font-weight: 800; color: var(--primary); margin-top: auto; }
+.pdv-card-unit { font-size: 0.65em; font-weight: 500; color: #0891b2; }
+.pdv-card-kg-badge {
+    display: inline-block; font-size: 0.6rem;
+    background: #e0f7fa; color: #0891b2;
+    border-radius: 3px; padding: 0 4px; font-weight: 700;
+}
+.pdv-card-kg { border-color: #b2ebf2; }
+.pdv-card-kg .pdv-card-price { color: #0891b2; }
+.pdv-card-kg:hover { border-color: #0891b2; background: #e0f7fa22; }
+
+/* ── Right column: Order ────────────────────────────────── */
+.pdv-col-dir {
+    display: flex; flex-direction: column;
+    background: #fff; overflow: hidden;
+}
+.pdv-dir-titulo {
+    padding: 9px 10px 7px;
+    font-weight: 800; font-size: 0.88rem; color: #222;
+    border-bottom: 1px solid #f0f0f0; flex-shrink: 0;
 }
 
-/* Monitor (na view de mesas, não dentro do container 2 cols) */
+/* Order type tabs */
+.pdv-tipo-tabs { display: flex; border-bottom: 2px solid #ddd; flex-shrink: 0; }
+.pdv-tipo-tab {
+    flex: 1; padding: 7px 2px;
+    border: none; background: #f5f5f5;
+    font-size: 0.67rem; font-weight: 700; color: #666;
+    cursor: pointer; border-right: 1px solid #ddd;
+    transition: background 0.1s; white-space: nowrap; text-align: center;
+}
+.pdv-tipo-tab:last-child { border-right: none; }
+.pdv-tipo-tab:hover { background: #e8e8e8; }
+.pdv-tipo-tab.active { background: var(--primary); color: #fff; }
+
+/* Discount */
+.pdv-dir-desconto {
+    padding: 6px 8px;
+    background: #fffbf0; border-bottom: 1px solid #ffe082;
+    flex-shrink: 0;
+}
+.pdv-dir-desc-label { font-size: 0.67rem; font-weight: 800; color: #7d5a00; letter-spacing: 0.5px; margin-bottom: 3px; }
+
+/* Client data */
+.pdv-dir-dados {
+    padding: 6px 8px; border-bottom: 1px solid #f0f0f0;
+    display: flex; flex-direction: column; gap: 5px; flex-shrink: 0;
+}
+.pdv-dado-row { display: flex; gap: 6px; }
+.pdv-dir-label { display: block; font-size: 0.67rem; font-weight: 700; color: #666; margin-bottom: 2px; }
+.pdv-dir-input {
+    width: 100%; padding: 5px 7px;
+    border: 1px solid #ddd; border-radius: 4px;
+    font-size: 0.8rem; outline: none; box-sizing: border-box;
+}
+.pdv-dir-input:focus { border-color: var(--primary); }
+
+/* Item table */
+.pdv-dir-lista-wrap { flex: 1; overflow-y: auto; scrollbar-width: thin; min-height: 60px; }
+.pdv-dir-table { width: 100%; border-collapse: collapse; font-size: 0.76rem; }
+.pdv-dir-table thead th {
+    padding: 4px 5px; text-align: left;
+    font-weight: 700; color: #555; font-size: 0.69rem;
+    background: #f5f5f5; border-bottom: 2px solid #e0e0e0;
+    position: sticky; top: 0; z-index: 1;
+}
+.pdv-dir-table th.tc { text-align: center; }
+.pdv-dir-table th.tr { text-align: right; }
+.pdv-dir-tbody tr { border-bottom: 1px solid #f5f5f5; }
+.pdv-dir-tbody tr:hover { background: #fafafa; }
+.pdv-dir-tbody td { padding: 4px 5px; vertical-align: middle; }
+.pdv-dir-tbody td.tc { text-align: center; }
+.pdv-dir-tbody td.tr { text-align: right; font-weight: 700; color: #333; }
+.pdv-item-nome { font-size: 0.74rem; font-weight: 600; color: #222; }
+.pdv-item-qtd { color: var(--primary); font-weight: 800; }
+.pdv-item-remove {
+    color: #e74c3c; background: none; border: none;
+    cursor: pointer; font-size: 0.8rem; padding: 0 1px; opacity: 0.7;
+}
+.pdv-item-remove:hover { opacity: 1; }
+.pdv-item-existente td { color: #888; font-style: italic; }
+.pdv-item-entregue td { text-decoration: line-through; opacity: 0.5; }
+.pdv-lista-vazio { text-align: center; color: #bbb; padding: 16px; font-size: 0.8rem; }
+.pdv-sec-title { background: #f5f5f5; font-size: 0.67rem; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.5px; padding: 3px 6px; }
+.pdv-sec-novo { color: var(--primary); background: #f0fdf4; }
+.badge-entregue { font-size: 0.63rem; color: #27ae60; font-weight: 700; }
+
+/* Totals */
+.pdv-dir-totais {
+    padding: 5px 8px; border-top: 2px solid #e0e0e0;
+    flex-shrink: 0; background: #fafafa;
+}
+.pdv-dir-total-row { display: flex; justify-content: space-between; font-size: 0.76rem; color: #666; padding: 1px 0; }
+.pdv-dir-valor-total {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 0.8rem; font-weight: 700; color: #333;
+    padding-top: 4px; margin-top: 3px; border-top: 1px dashed #ddd;
+}
+.pdv-dir-valor-total strong { font-size: 1.4rem; font-weight: 900; color: #111; }
+
+/* Action buttons */
+.pdv-dir-footer {
+    display: flex; gap: 6px;
+    padding: 7px 8px; border-top: 1px solid #ddd; flex-shrink: 0;
+}
+.pdv-btn-cancelar {
+    padding: 9px 10px; background: #ffeaea; color: #c0392b;
+    border: 1.5px solid #f5c6c6; border-radius: 6px;
+    font-weight: 700; font-size: 0.79rem; cursor: pointer;
+    white-space: nowrap; display: flex; align-items: center; gap: 4px;
+}
+.pdv-btn-cancelar:hover { background: #e74c3c; color: #fff; border-color: #e74c3c; }
+.pdv-btn-lancar {
+    flex: 1; padding: 9px;
+    background: var(--primary); color: #fff;
+    border: none; border-radius: 6px;
+    font-weight: 800; font-size: 0.84rem;
+    cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;
+}
+.pdv-btn-lancar:hover { filter: brightness(1.1); }
+.pdv-btn-lancar:active { transform: scale(0.97); }
+
+/* ── Mobile: tab navigation ──────────────────────────────── */
+.pdv-tabs {
+    display: none;  /* hidden on desktop */
+}
+
+@media (max-width: 768px) {
+    /* Show mobile tabs, hide desktop layout */
+    .pdv-tabs {
+        display: flex;
+        background: #fff;
+        border-bottom: 2px solid #e0e0e0;
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        flex-shrink: 0;
+    }
+    .pdv-tab-btn {
+        flex: 1;
+        padding: 10px 4px;
+        border: none;
+        background: #f5f5f5;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #666;
+        cursor: pointer;
+        border-right: 1px solid #e0e0e0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 3px;
+    }
+    .pdv-tab-btn:last-child { border-right: none; }
+    .pdv-tab-btn.active { background: var(--primary); color: #fff; }
+    .pdv-tab-btn.active i { color: #fff !important; opacity: 1 !important; }
+    .pdv-tab-btn i { font-size: 1.1rem; }
+
+    /* On mobile: single-column, tabs switch panels */
+    .pdv-layout {
+        grid-template-columns: 1fr;
+        height: calc(100vh - 200px);
+        background: #fff;
+        border: none;
+        border-radius: 0;
+    }
+
+    /* Each panel hides/shows based on active tab */
+    .pdv-tab-panel {
+        display: none;
+        height: calc(100vh - 200px);
+    }
+    .pdv-tab-panel.pdv-tab-active {
+        display: flex;
+        flex-direction: column;
+    }
+
+    /* Mobile: category chips wrap */
+    .pdv-cats {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        scrollbar-width: none;
+    }
+    .pdv-cats::-webkit-scrollbar { display: none; }
+    .pdv-cat-chip { padding: 9px 14px; font-size: 0.74rem; }
+
+    /* Mobile: product cards smaller */
+    .pdv-cat-row { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
+    .pdv-card { min-height: 52px; }
+
+    /* Mobile: right column full width */
+    .pdv-col-dir {
+        height: calc(100vh - 200px);
+        overflow-y: auto;
+    }
+    .pdv-tipo-tab { font-size: 0.62rem; padding: 8px 2px; }
+
+    /* Mobile: table columns adjust */
+    .pdv-dir-table th:nth-child(3),
+    .pdv-dir-tbody td:nth-child(3) { display: none; } /* hide Unitário */
+
+    /* Mobile: larger touch targets */
+    .pdv-btn-lancar { padding: 12px; font-size: 0.9rem; }
+    .pdv-btn-cancelar { padding: 12px 10px; }
+}
+
+@media (max-width: 480px) {
+    .pdv-cat-row { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+    .pdv-card-img { width: 100%; }
+    .pdv-dir-valor-total strong { font-size: 1.2rem; }
+}
+
+
 .pdv-monitor {
     background: linear-gradient(160deg, #2c3e50 0%, #1a252f 100%);
     color: white;
@@ -1066,7 +1279,7 @@ select.form-control, select.input-modern {
     }
 
     /* Inputs ocupam 100% da largura */
-    input, select, button, .form-control {
+    input, select, button:not([style*="32px"]):not([id$="close"]):not(.close-btn-modern), .form-control {
         width: 100% !important;
         max-width: 100% !important;
         margin: 0 !important;
@@ -1138,7 +1351,8 @@ select.form-control, select.input-modern {
         border-bottom: 3px solid transparent;
         margin-bottom: -2px;
     }
-    .pdv-tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .pdv-tab-btn.active { background: var(--primary); color: #fff; border-bottom-color: var(--primary); }
+    .pdv-tab-btn.active i { color: #fff !important; opacity: 1 !important; }
     
     .pdv-carrinho, .pdv-produtos, .pdv-monitor {
         display: none !important;
@@ -3428,7 +3642,7 @@ hr.modal-divisor {
   width: 18px; height: 18px;
   left: 3px; top: 3px;
   background: #fff;
-  border-radius: 50%;
+  border-radius: 8px;
   transition: .25s;
   box-shadow: 0 1px 3px rgba(0,0,0,.2);
 }
@@ -3697,6 +3911,10 @@ hr.modal-divisor {
 /* Badge do menu mesas: não esconder */
 .sidebar.collapsed .pdv-badge-mesas { display: inline !important; }
 
+body.sidebar-collapsed .main-content {
+  margin-left: 60px !important;
+}
+
 /* ══════════════════════════════════════════════════════
    INVENTÁRIO — card layout
    ══════════════════════════════════════════════════════ */
@@ -3740,4 +3958,128 @@ hr.modal-divisor {
   }
   #pdv-grid { padding-bottom: 90px !important; }
   .tab-content { padding-bottom: 80px !important; }
+}
+.topbar-btn.btn-baixar-mesas { background: #e8f4fd; color: #2980b9; }
+.topbar-btn.btn-baixar-mesas:hover { background: #2980b9; color: #fff; }
+.topbar-btn.btn-baixar-nd { background: #f3e5f5; color: #7b1fa2; }
+.topbar-btn.btn-baixar-nd:hover { background: #7b1fa2; color: #fff; }
+
+.crm-aba-btn {
+  padding: 7px 16px;
+  border: 1.5px solid #ddd;
+  border-radius: 20px;
+  background: #f8f9fa;
+  color: #555;
+  font-size: 0.83rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.crm-aba-btn.active {
+  background: #1a7a2e;
+  color: #fff;
+  border-color: #1a7a2e;
+}
+.ft-empty {
+  text-align: center;
+  color: #aaa;
+  padding: 20px;
+}
+/* ══════════════════════════════════════════════
+   MÓDULOS NOVOS — Estatísticas · Ficha · CRM
+   ══════════════════════════════════════════════ */
+
+/* ── Menus novos no sidebar ── */
+#menu-estatisticas,
+#menu-ficha-tecnica,
+#menu-crm {
+  display: none; /* mostrado via JS após auth */
+}
+
+/* ── KPI cards dos novos módulos ── */
+.est-kpi-wrap {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+/* ── Ficha técnica: sub-nav ── */
+#ft-nav-insumos,
+#ft-nav-fichas {
+  transition: all 0.15s;
+}
+
+/* ── Tabela de despesas ── */
+#lista-despesas-caixa tr:hover {
+  background: #fef9f9;
+}
+#lista-despesas-caixa td {
+  vertical-align: middle;
+}
+
+/* ── CRM aba btns ── */
+.crm-aba-btn {
+  padding: 7px 16px;
+  border: 1.5px solid #ddd;
+  border-radius: 20px;
+  background: #f8f9fa;
+  color: #555;
+  font-size: 0.83rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.crm-aba-btn.active {
+  background: #1a7a2e;
+  color: #fff;
+  border-color: #1a7a2e;
+}
+.crm-aba-btn:hover:not(.active) {
+  background: #e8f5e9;
+  border-color: #1a7a2e;
+  color: #1a7a2e;
+}
+
+/* ── Ficha empty state ── */
+.ft-empty {
+  text-align: center;
+  color: #aaa;
+  padding: 20px;
+}
+
+/* ── Cashback box no PDV ── */
+#pdv-cashback-box {
+  animation: slideDown 0.2s ease;
+}
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Aniversariante highlight ── */
+.aniversario-hoje {
+  background: #fff8e1 !important;
+  border-left: 3px solid #ff9800;
+}
+
+/* ── Loading spinner estatísticas ── */
+#est-loading {
+  display: none;
+  justify-content: center;
+  align-items: center;
+  padding: 40px;
+  gap: 12px;
+  color: #666;
+}
+
+/* ── Responsivo novas abas ── */
+@media (max-width: 600px) {
+  .est-kpi-wrap {
+    grid-template-columns: 1fr 1fr;
+  }
+  #ft-panel-insumos table,
+  #crm-lista-clientes {
+    font-size: 0.78rem;
+  }
 }

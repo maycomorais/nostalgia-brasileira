@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="theme-color" content="#1a7a2e">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <title>Atendimento — Garçom</title>
+  <title>Atención — Mozo</title>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   <audio id="som-pronto" preload="auto">
     <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
@@ -163,26 +163,26 @@
 <div id="login-screen">
   <div class="login-box">
     <img id="atend-login-logo" src="" alt="Logo" style="display:none;width:72px;height:72px;border-radius:14px;object-fit:cover;margin-bottom:12px">
-    <h2 id="atend-login-nome">Atendimento</h2>
-    <p>Painel do Garçom — faça login para atender</p>
-    <input class="login-input" type="email" id="l-email" placeholder="Email" autocomplete="email">
-    <input class="login-input" type="password" id="l-senha" placeholder="Senha" autocomplete="current-password">
-    <button class="login-btn" id="l-btn" onclick="fazerLogin()">ENTRAR</button>
+    <h2 id="atend-login-nome">Atención</h2>
+    <p>Panel de Mozos — inicie sesión para atender</p>
+    <input class="login-input" type="email" id="l-email" placeholder="Correo electrónico" autocomplete="email">
+    <input class="login-input" type="password" id="l-senha" placeholder="Contraseña" autocomplete="current-password">
+    <button class="login-btn" id="l-btn" onclick="fazerLogin()">INICIAR SESIÓN</button>
     <div class="login-err" id="l-err"></div>
   </div>
 </div>
 
 <!-- LOADING -->
-<div id="loading"><div class="spinner"></div><p style="color:#666;font-weight:600">Carregando cardápio...</p></div>
+<div id="loading"><div class="spinner"></div><p style="color:#666;font-weight:600">Cargando menú...</p></div>
 
 <!-- HEADER -->
 <header class="header" id="app-header" style="display:none">
   <div class="header-logo">
     <img id="atend-header-logo" src="" alt="Logo" style="display:none;width:34px;height:34px;border-radius:8px;object-fit:cover">
-    <span id="atend-header-nome">Atendimento</span>
+    <span id="atend-header-nome">Atención</span>
   </div>
   <div style="display:flex;align-items:center;gap:6px">
-    <div class="garcom-badge"><i class="fas fa-user-tie"></i> <span id="hd-garcom">Garçom</span></div>
+    <div class="garcom-badge"><i class="fas fa-user-tie"></i> <span id="hd-garcom">Mozo</span></div>
     <button class="btn-sair" onclick="fazerLogout()"><i class="fas fa-sign-out-alt"></i></button>
   </div>
 </header>
@@ -200,7 +200,7 @@
 
 <!-- MAIN -->
 <main class="main" id="main-content" style="display:none">
-  <p style="text-align:center;color:#aaa;padding:40px">Carregando...</p>
+  <p style="text-align:center;color:#aaa;padding:40px">Cargando...</p>
 </main>
 
 <!-- CART BAR -->
@@ -212,16 +212,25 @@
 
 <div id="atend-toast"></div>
 
+<!-- RODAPÉ FIXO — pedido pronto (persiste após fechar banner) -->
+<div id="footer-pronto" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:500;background:#27ae60;color:#fff;padding:10px 16px;display:none;align-items:center;justify-content:space-between;box-shadow:0 -2px 12px rgba(0,0,0,0.15)">
+  <span id="footer-pronto-txt" style="font-weight:700;font-size:0.9rem"></span>
+  <button onclick="document.getElementById('banner-pronto').classList.add('show')"
+    style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:6px 14px;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.82rem">
+    Ver pedidos
+  </button>
+</div>
+
 <!-- BANNER PRONTO -->
 <div id="banner-pronto">
   <div class="pronto-card">
     <div class="pronto-top">
       <div class="pronto-icon">🔔</div>
-      <h2>Pedido Pronto!</h2>
-      <p>Retire na cozinha e entregue ao cliente</p>
+      <h2>¡Pedido Listo!</h2>
+      <p>Retire de la cocina y entregue al cliente</p>
     </div>
     <div class="pronto-pedidos" id="pronto-lista"></div>
-    <button class="btn-fechar-banner" onclick="fecharBannerPronto()">Fechar aviso</button>
+    <button class="btn-fechar-banner" onclick="fecharBannerPronto()">Cerrar aviso</button>
   </div>
 </div>
 
@@ -229,14 +238,14 @@
 <div class="overlay" id="modal-prod">
   <div class="sheet">
     <div class="sheet-handle"></div>
-    <div class="sheet-header"><h3 id="mp-title">Produto</h3><button class="btn-close" onclick="fecharModalProd()">x</button></div>
+    <div class="sheet-header"><h3 id="mp-title">Producto</h3><button class="btn-close" onclick="fecharModalProd()">x</button></div>
     <div id="mp-img-wrap"></div>
     <div style="padding:10px 14px 0"><p id="mp-desc" style="font-size:.84rem;color:var(--text2)"></p></div>
     <div id="mp-opcoes"></div>
-    <div class="obs-area"><label>Observacao (opcional)</label><textarea id="mp-obs" placeholder="Ex: Sem cebola, mal passado..."></textarea></div>
+    <div class="obs-area"><label>Observación (opcional)</label><textarea id="mp-obs" placeholder="Ej: Sin cebolla, a punto..."></textarea></div>
     <div class="modal-actions">
       <div class="stepper"><button onclick="mpQtd(-1)">-</button><span id="mp-qty">1</span><button onclick="mpQtd(+1)">+</button></div>
-      <button class="btn-add" onclick="mpAdicionar()">Adicionar - Gs <span id="mp-preco-txt">0</span></button>
+      <button class="btn-add" onclick="mpAdicionar()">Agregar - Gs <span id="mp-preco-txt">0</span></button>
     </div>
   </div>
 </div>
@@ -249,7 +258,7 @@
     <div>
       <div style="text-align:center;font-size:.76rem;color:var(--info);margin:6px 14px 0;font-weight:700" id="kg-preco-ref"></div>
       <div class="kg-display"><div class="kg-num" id="kg-display">-</div><div style="font-size:.72rem;color:#0e7490;margin-top:2px">Peso</div></div>
-      <input type="number" id="kg-input" min="1" step="1" placeholder="Gramas (ex: 300)" oninput="kgAtualizar()" onkeydown="if(event.key==='Enter')kgAdicionar()">
+      <input type="number" id="kg-input" min="1" step="1" placeholder="Gramos (ej: 300)" oninput="kgAtualizar()" onkeydown="if(event.key==='Enter')kgAdicionar()">
       <div class="kg-preco-preview hidden" id="kg-preview"><span style="font-size:.83rem;color:#166534">Total:</span><span class="kg-val" id="kg-val">Gs 0</span></div>
     </div>
     <div class="modal-actions"><button class="btn-add" id="kg-btn" onclick="kgAdicionar()" disabled style="opacity:.5">Confirmar peso</button></div>
@@ -265,25 +274,24 @@
     <div class="cart-total-row"><span>Total</span><span id="cart-total-val">Gs 0</span></div>
     <div class="cart-form">
       <label>Mesa / Comanda <small style="font-weight:400;color:#aaa">(opcional)</small></label>
-      <input type="text" id="cart-mesa" placeholder="No da mesa ou comanda" inputmode="numeric">
+      <input type="text" id="cart-mesa" placeholder="Nº de mesa o comanda" inputmode="numeric">
       <label>Cliente <small style="font-weight:400;color:#aaa">(opcional)</small></label>
-      <input type="text" id="cart-cliente" placeholder="Nome do cliente">
-      <label>Pagamento</label>
+      <input type="text" id="cart-cliente" placeholder="Nombre del cliente">
+      <label>Pago</label>
       <select id="cart-pag" onchange="cartPagChange()">
-        <option value="Efetivo">Efetivo</option>
-        <option value="Cartao">Cartao</option>
-        <option value="Pix">Pix</option>
+        <option value="Efectivo">Efectivo</option>
+        <option value="Tarjeta">Tarjeta</option>
         <option value="Transferencia">Alias / Transferencia</option>
-        <option value="Multipagamento">Dividir Pagamento</option>
+        <option value="Multipagamento">Dividir Pago</option>
       </select>
       <div id="box-multi-atend">
-        <button type="button" onclick="cartVoltarUnico()" style="width:100%;padding:8px;background:#eef4ff;color:#2980b9;border:1.5px solid #2980b9;border-radius:8px;font-weight:700;cursor:pointer;font-size:.8rem;margin-top:7px">Usar pagamento unico</button>
+        <button type="button" onclick="cartVoltarUnico()" style="width:100%;padding:8px;background:#eef4ff;color:#2980b9;border:1.5px solid #2980b9;border-radius:8px;font-weight:700;cursor:pointer;font-size:.8rem;margin-top:7px">Usar pago único</button>
         <div id="multi-partes-atend" style="margin-top:7px"></div>
-        <button type="button" onclick="cartAddParte()" style="width:100%;padding:8px;background:#f8f9fa;color:#555;border:1.5px dashed #ccc;border-radius:8px;font-weight:600;cursor:pointer;font-size:.8rem;margin-top:4px">+ Adicionar forma</button>
+        <button type="button" onclick="cartAddParte()" style="width:100%;padding:8px;background:#f8f9fa;color:#555;border:1.5px dashed #ccc;border-radius:8px;font-weight:600;cursor:pointer;font-size:.8rem;margin-top:4px">+ Agregar forma</button>
         <div id="multi-status-atend" style="display:none;padding:8px 12px;border-radius:8px;margin-top:6px;font-weight:700;font-size:.83rem"></div>
       </div>
     </div>
-    <button class="btn-lancar" id="btn-lancar" onclick="lancarPedido()">🚀 LANÇAR NA COZINHA</button>
+    <button class="btn-lancar" id="btn-lancar" onclick="lancarPedido()">🚀 ENVIAR A LA COCINA</button>
   </div>
 </div>
 
@@ -291,15 +299,15 @@
 <div class="overlay" id="modal-scanner">
   <div class="sheet">
     <div class="sheet-handle"></div>
-    <div class="sheet-header"><h3>Leitor de Comanda</h3><button class="btn-close" onclick="fecharScanner()">x</button></div>
+    <div class="sheet-header"><h3>Lector de Comanda</h3><button class="btn-close" onclick="fecharScanner()">x</button></div>
     <div class="scan-area">
       <div style="font-size:3.5rem;margin-bottom:10px">&#x1F50D;</div>
-      <p style="font-size:.87rem;color:var(--text2);margin-bottom:14px;line-height:1.5">Aponte o leitor laser para o cartao da comanda.<br>O numero e capturado automaticamente.</p>
-      <div class="scan-status" id="scan-status">Aguardando leitura...</div>
+      <p style="font-size:.87rem;color:var(--text2);margin-bottom:14px;line-height:1.5">Apunte el lector láser al código de la comanda.<br>El número se captura automáticamente.</p>
+      <div class="scan-status" id="scan-status">Esperando lectura...</div>
       <div id="scan-last" style="font-size:.76rem;color:var(--text2);margin-top:6px"></div>
       <input id="scan-hidden-input" type="text" autocomplete="off" onkeydown="scanKeydown(event)" oninput="scanInput(event)">
-      <button onclick="document.getElementById('scan-hidden-input').focus()" style="padding:11px 22px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-weight:700;cursor:pointer;margin-top:8px">Ativar leitor</button>
-      <p style="font-size:.72rem;color:#aaa;margin-top:9px">Ou digite manualmente no campo Mesa acima.</p>
+      <button onclick="document.getElementById('scan-hidden-input').focus()" style="padding:11px 22px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-weight:700;cursor:pointer;margin-top:8px">Activar lector</button>
+      <p style="font-size:.72rem;color:#aaa;margin-top:9px">O ingrese manualmente en el campo Mesa arriba.</p>
     </div>
   </div>
 </div>
@@ -344,12 +352,12 @@ async function fazerLogin() {
   var errEl = document.getElementById('l-err');
   var btn = document.getElementById('l-btn');
   errEl.style.display = 'none';
-  if (!email || !senha) { errEl.textContent = 'Preencha email e senha.'; errEl.style.display = 'block'; return; }
-  btn.disabled = true; btn.textContent = 'Entrando...';
+  if (!email || !senha) { errEl.textContent = 'Ingrese correo y contraseña.'; errEl.style.display = 'block'; return; }
+  btn.disabled = true; btn.textContent = 'Iniciando sesión...';
   var result = await supa.auth.signInWithPassword({ email: email, password: senha });
   if (result.error) {
-    errEl.textContent = 'Email ou senha incorretos.'; errEl.style.display = 'block';
-    btn.disabled = false; btn.textContent = 'ENTRAR'; return;
+    errEl.textContent = 'Correo o contraseña incorrectos.'; errEl.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'INICIAR SESIÓN'; return;
   }
   await iniciarApp(result.data.session);
 }
@@ -363,7 +371,7 @@ async function iniciarApp(session) {
   // Carrega identidade da loja do banco
   var cfgRes = await supa.from('configuracoes').select('nome_restaurante, logo_url, icone_url, cor_primaria').maybeSingle();
   var cfg = cfgRes.data || {};
-  var nomeApp = cfg.nome_restaurante || 'Atendimento';
+  var nomeApp = cfg.nome_restaurante || 'Atención';
   var logoUrl = cfg.logo_url || cfg.icone_url || '';
   // Aplica nome
   var elNomeHeader = document.getElementById('atend-header-nome');
@@ -383,7 +391,7 @@ async function iniciarApp(session) {
     document.documentElement.style.setProperty('--primary2', cfg.cor_primaria);
   }
   // Atualiza title
-  document.title = 'Atendimento — ' + nomeApp;
+  document.title = 'Atención — ' + nomeApp;
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('loading').style.display = 'flex';
   ['app-header','app-comanda','cat-nav','main-content','cart-bar'].forEach(function(id) {
@@ -469,7 +477,7 @@ function renderProdutos() {
     prods.forEach(function(p){ grid.appendChild(criarCard(p)); });
     main.appendChild(grid);
   });
-  if (!temAlgo) main.innerHTML = '<p style="text-align:center;color:#aaa;padding:40px">Nenhum produto encontrado</p>';
+  if (!temAlgo) main.innerHTML = '<p style="text-align:center;color:#aaa;padding:40px">Ningún producto encontrado</p>';
 }
 
 function criarCard(p) {
@@ -508,7 +516,7 @@ function abrirProd(p) {
     var ativas = cfg.variacoes.filter(function(v){ return v.ativo !== false; });
     if (ativas.length) {
       var g = document.createElement('div'); g.className = 'opcoes-group';
-      g.innerHTML = '<div class="opcoes-group-label">Escolha a variacao</div>';
+      g.innerHTML = '<div class="opcoes-group-label">Seleccione la opción</div>';
       ativas.forEach(function(v) {
         var btn = document.createElement('button'); btn.className = 'opcao-btn';
         btn.innerHTML = '<span>'+v.nome+'</span><span class="opcao-preco">Gs '+((v.preco||p.preco||0)).toLocaleString('es-PY')+'</span>';
@@ -536,7 +544,7 @@ function mpAdicionar() {
   var cfg=_prodAtual.montagem_config, tipo=cfg&&!Array.isArray(cfg)&&cfg.__tipo;
   if (tipo==='variacoes') {
     var ativas=(cfg.variacoes||[]).filter(function(v){ return v.ativo!==false; });
-    if (ativas.length && !_mpVariacao) { toast('Escolha uma variacao'); return; }
+    if (ativas.length && !_mpVariacao) { toast('Seleccione una opción'); return; }
   }
   var preco = _mpVariacao ? (_mpVariacao.preco || _prodAtual.preco) : (_prodAtual.preco||0);
   var variacao = _mpVariacao ? _mpVariacao.nome : '';
@@ -547,7 +555,7 @@ function mpAdicionar() {
     carrinho.push({ _id:_prodAtual.id, nome:_prodAtual.nome, preco:preco, qtd:_mpQty, variacao:variacao, obs:obs, categoria_slug:_prodAtual.categoria_slug||'' });
   }
   atualizarCartBar(); fecharModalProd();
-  toast(_prodAtual.nome+' adicionado');
+  toast(_prodAtual.nome+' agregado');
 }
 
 // =========================================================
@@ -584,7 +592,7 @@ function kgAdicionar(){
   if (!g||!_kgProd) return;
   carrinho.push({ _id:_kgProd.id+'_kg_'+Date.now(), nome:_kgProd.nome, preco:Math.round(_kgPreco*g/1000), qtd:1, variacao:'', obs:'', _isKg:true, peso_gramas:g, preco_kg:_kgPreco, categoria_slug:_kgProd.categoria_slug||'' });
   atualizarCartBar(); fecharModalKg();
-  toast(_kgProd.nome+' adicionado');
+  toast(_kgProd.nome+' agregado');
 }
 
 // =========================================================
@@ -601,9 +609,9 @@ function atualizarCartBar(){
   if (btn) {
     var _soKg=carrinho.length>0&&carrinho.every(function(i){return i._isKg;});
     var _soBebida=carrinho.length>0&&carrinho.every(ehBebida);
-    if (_soKg) btn.textContent='⚖️ REGISTRAR VENDA KG';
-    else if (_soBebida) btn.textContent='🍺 LANÇAR BEBIDAS';
-    else btn.textContent='🚀 LANÇAR NA COZINHA';
+    if (_soKg) btn.textContent='⚖️ REGISTRAR VENTA KG';
+    else if (_soBebida) btn.textContent='🍺 ENVIAR BEBIDAS';
+    else btn.textContent='🚀 ENVIAR A LA COCINA';
   }
 }
 function abrirCarrinho(){
@@ -729,23 +737,23 @@ async function lancarPedido(){
       }
       var dadosImp={id:res.data.id,cliente:{nome:nomeFinal,tel:''},entrega:{tipo:'balcao',ref:pedido.endereco_entrega},
         itens:novosItens.map(function(i){return{q:i.qtd,n:i.nome,p:i.preco,t:i.variacao||'',pr:'',m:i.montagem||[],o:i.obs||'',peso_gramas:i.peso_gramas,_isKg:i._isKg};}),
-        valores:{sub:total,frete:0,total:total},pagamento:{metodo:pag,obs:obsPag},garcom:_garcomNome,data:new Date().toLocaleString('pt-BR')};
+        valores:{sub:total,frete:0,total:total},pagamento:{metodo:pag,obs:obsPag},garcom:_garcomNome,data:new Date().toLocaleString('es-PY')};
       var b64=btoa(unescape(encodeURIComponent(JSON.stringify(dadosImp)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
       window.open('imprimir.html?d='+b64,'PrintAtend','width=400,height=600');
     }
     carrinho=[]; atualizarCartBar(); fecharCarrinho();
     document.getElementById('cart-mesa').value='';
     document.getElementById('cart-cliente').value='';
-    document.getElementById('cart-pag').value='Efetivo';
+    document.getElementById('cart-pag').value='Efectivo';
     document.getElementById('box-multi-atend').style.display='none';
     document.getElementById('multi-partes-atend').innerHTML='';
     _multiCont=0;
-    var msgs={entregue:'Venda Kg registrada!',pronto_entrega:'So bebidas - direto ao balcao!',em_preparo:'Enviado para a Cozinha!'};
-    toast(msgs[statusFinal]||'Pedido lancado!');
+    var msgs={entregue:'¡Venta por Kg registrada!',pronto_entrega:'¡Solo bebidas - directo al mostrador!',em_preparo:'¡Enviado a la Cocina!'};
+    toast(msgs[statusFinal]||'¡Pedido enviado!');
   } catch(e) {
-    toast('Erro: '+e.message); console.error(e);
+    toast('Error: '+e.message); console.error(e);
   } finally {
-    btn.disabled=false; btn.textContent='🚀 LANÇAR NA COZINHA';
+    btn.disabled=false; btn.textContent='🚀 ENVIAR A LA COCINA';
   }
 }
 
@@ -786,14 +794,36 @@ function exibirBannerPronto(pedidos){
   pedidos.forEach(function(p){
     var num=p.uid_temporal||('#'+p.id);
     var qtdItens=(p.itens||[]).length;
-    var ref=p.endereco_entrega||'Balcao';
+    var ref=p.endereco_entrega||'Balcão';
     var card=document.createElement('div'); card.className='pronto-item';
-    card.innerHTML='<div class="pronto-num">'+num+'</div><div class="pronto-info"><strong>'+(p.cliente_nome||'Cliente')+'</strong><small>'+ref+' - '+qtdItens+' item(s)</small></div><button class="btn-entregar" onclick="marcarEntregue('+p.id+', this)">Entreguei</button>';
+    card.innerHTML='<div class="pronto-num">'+num+'</div>'
+      +'<div class="pronto-info"><strong>'+(p.cliente_nome||'Cliente')+'</strong>'
+      +'<small>'+ref+' — '+qtdItens+' item(s)</small></div>'
+      +'<button class="btn-entregar" onclick="marcarEntregue('+p.id+', this)">Entreguei</button>';
     lista.appendChild(card);
   });
   document.getElementById('banner-pronto').classList.add('show');
+
+  // Atualiza rodapé fixo
+  _atualizarFooterPronto();
 }
-function fecharBannerPronto(){ document.getElementById('banner-pronto').classList.remove('show'); pararAlarmePronto(); }
+
+function _atualizarFooterPronto() {
+  var footer = document.getElementById('footer-pronto');
+  if (!footer) return;
+  var itens = document.querySelectorAll('#pronto-lista .pronto-item');
+  if (!itens.length) { footer.style.display='none'; return; }
+  footer.style.display = 'flex';
+  footer.querySelector('#footer-pronto-txt').textContent =
+    '🔔 ' + itens.length + ' pedido(s) pronto(s) para entregar';
+}
+
+function fecharBannerPronto(){
+  document.getElementById('banner-pronto').classList.remove('show');
+  pararAlarmePronto();
+  // Footer permanece visível enquanto houver pedidos prontos
+  _atualizarFooterPronto();
+}
 
 async function marcarEntregue(pedidoId, btnEl){
   btnEl.disabled=true; btnEl.textContent='...';
@@ -801,7 +831,8 @@ async function marcarEntregue(pedidoId, btnEl){
   var res=await supa.from('pedidos').update({status:'entregue',tempo_entregue:agora}).eq('id',pedidoId);
   if (res.error){ btnEl.disabled=false; btnEl.textContent='Entreguei'; toast('Erro ao marcar'); return; }
   btnEl.closest('.pronto-item').remove();
-  toast('Pedido marcado como entregue!');
+  toast('Pedido entregue!');
+  _atualizarFooterPronto();
   if (!document.querySelectorAll('#pronto-lista .pronto-item').length) fecharBannerPronto();
 }
 

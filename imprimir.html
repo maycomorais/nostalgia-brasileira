@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="es">
 <head>
   <meta charset="UTF-8">
   <title>Comanda</title>
@@ -100,20 +100,21 @@
     <table>
       <thead>
         <tr>
-          <th style="width:13%">Qtd</th>
-          <th>Item</th>
+          <th style="width:13%">Cant.</th>
+          <th>Ítem</th>
           <th class="right">Total</th>
         </tr>
       </thead>
       <tbody id="lista-itens">
-        <tr><td colspan="3" style="text-align:center;padding:8px">Carregando...</td></tr>
+        <tr><td colspan="3" style="text-align:center;padding:8px">Cargando...</td></tr>
       </tbody>
     </table>
     <hr>
 
     <div class="totais">
       <div>Subtotal: <span id="subtotal">Gs 0</span></div>
-      <div id="row-frete" style="display:none">Frete: <span id="frete">Gs 0</span></div>
+      <div id="row-desconto" style="display:none;color:#e74c3c">Descuento: -<span id="desconto">Gs 0</span></div>
+      <div id="row-frete" style="display:none">Envío: <span id="frete">Gs 0</span></div>
       <div class="total-final">TOTAL: <span id="total-geral">Gs 0</span></div>
     </div>
     <hr>
@@ -126,13 +127,14 @@
     </div>
 
     <hr>
-    <div class="rodape">*** OBRIGADO ***</div>
+    <div class="rodape">*** MUCHAS GRACIAS ***</div>
   </div>
 
   <button class="btn-print" onclick="window.print()">🖨️ IMPRIMIR</button>
 
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script src="supabaseClient.js"></script>
+  <script>
     window.onload = function () {
       // Tenta carregar nome do restaurante do banco
       (async function() {
@@ -154,7 +156,7 @@
       const params = new URLSearchParams(window.location.search);
       const raw = params.get('d');
       if (!raw) {
-        document.body.innerHTML = '<p style="color:red;text-align:center;margin-top:40px">Link inválido.</p>';
+        document.body.innerHTML = '<p style="color:red;text-align:center;margin-top:40px">Enlace inválido.</p>';
         return;
       }
 
@@ -165,7 +167,7 @@
         const p = JSON.parse(json);
 
         document.getElementById('id-pedido').textContent  = p.id || 'S/N';
-        document.getElementById('data-hora').textContent  = p.data || new Date().toLocaleString('pt-BR');
+        document.getElementById('data-hora').textContent  = p.data || new Date().toLocaleString('es-PY');
         document.getElementById('nome').textContent       = p.cliente?.nome || 'Cliente';
         document.getElementById('tel').textContent        = p.cliente?.tel  || 'S/N';
 
@@ -173,7 +175,7 @@
         document.getElementById('tipo-entrega').textContent = tipo.toUpperCase();
         if (tipo === 'delivery') {
           document.getElementById('endereco-box').style.display = 'block';
-          document.getElementById('ref-entrega').textContent = p.entrega?.ref || 'Não informado';
+          document.getElementById('ref-entrega').textContent = p.entrega?.ref || 'No informado';
         }
 
         // Itens
@@ -183,7 +185,7 @@
 
         itens.forEach(function(item, idx) {
           var qtd    = item.q != null ? item.q : (item.qtd != null ? item.qtd : 1);
-          var nome   = item.n || item.nome || ('Item ' + (idx + 1));
+          var nome   = item.n || item.nome || ('Ítem ' + (idx + 1));
           var preco  = parseFloat(item.p != null ? item.p : (item.preco != null ? item.preco : 0)) || 0;
           var isKg   = item._isKg || (item.peso_gramas > 0);
           var pesoG  = item.peso_gramas || 0;
@@ -193,18 +195,32 @@
                : pesoG + 'g')
             : null;
 
-          var tipo_item = item.t || item.tipo     || '';
+          // variação/tipo: campo t, tipo ou variacao
+          var variacao  = item.t || item.variacao || item.tipo || '';
           var preparo   = item.pr || item.preparo || '';
-          var montagem  = item.m || item.montagem || [];
-          var obs       = item.o || item.obs      || '';
+          // montagem: campo m, montagem — pode ser array de strings ou array de objetos
+          var montagemRaw = item.m || item.montagem || [];
+          var obs       = item.o || item.obs || '';
 
           var det = '';
-          if (tipo_item && tipo_item !== nome && tipo_item !== 'Padrão' && tipo_item !== 'Montado')
-            det += '<span class="det">▸ ' + tipo_item + '</span>';
+
+          // Variação (tamanho de pizza, size de shake, etc.)
+          if (variacao && variacao !== nome && variacao !== 'Estándar' && variacao !== 'Armado')
+            det += '<span class="det">▸ ' + variacao + '</span>';
+
+          // Preparo
           if (preparo)
             det += '<span class="det">🍳 ' + preparo + '</span>';
-          if (Array.isArray(montagem) && montagem.length > 0)
-            montagem.forEach(function(l) { det += '<span class="det">· ' + l + '</span>'; });
+
+          // Montagem/etapas/sabores — normaliza: cada item pode ser string ou objeto {nome}
+          if (Array.isArray(montagemRaw) && montagemRaw.length > 0) {
+            montagemRaw.forEach(function(l) {
+              var txt = (typeof l === 'object' && l !== null) ? (l.nome || JSON.stringify(l)) : String(l);
+              if (txt) det += '<span class="det">· ' + txt + '</span>';
+            });
+          }
+
+          // Obs
           if (obs)
             det += '<span class="det-obs">⚠ ' + obs + '</span>';
 
@@ -220,32 +236,70 @@
 
         // Totais
         var v = p.valores || {};
-        var frete = v.frete || v.frete_cobrado_cliente || 0;
-        document.getElementById('subtotal').textContent    = 'Gs ' + (v.sub || v.subtotal || 0).toLocaleString('es-PY');
+        var frete    = v.frete || v.frete_cobrado_cliente || 0;
+        var desconto = v.desconto || v.desconto_cupom || 0;
+        var subtotal = v.sub || v.subtotal || 0;
+
+        document.getElementById('subtotal').textContent    = 'Gs ' + subtotal.toLocaleString('es-PY');
         document.getElementById('total-geral').textContent = 'Gs ' + (v.total || v.total_geral || 0).toLocaleString('es-PY');
+
+        if (desconto > 0) {
+          document.getElementById('row-desconto').style.display = '';
+          document.getElementById('desconto').textContent = 'Gs ' + desconto.toLocaleString('es-PY');
+        }
         if (frete > 0) {
           document.getElementById('row-frete').style.display = '';
           document.getElementById('frete').textContent = 'Gs ' + frete.toLocaleString('es-PY');
         }
 
-        // Pagamento
+        // ── SEÇÃO CORRIGIDA: Pagamento Seguro e Validação de Tipos ─────────
         var pg  = p.pagamento || {};
-        var met = pg.metodo || pg.forma_pagamento || 'Não informado';
+        var met = pg.metodo || pg.forma_pagamento || 'No informado';
         var obsp = pg.obs   || pg.obs_pagamento   || '';
 
+        var metodosValidos = ['efectivo', 'tarjeta', 'dinero', 'cartão', 'débito', 'crédito', 'efetivo'];
+        var deveAbrirGaveta = false;
+
         if (met === 'Multipagamento') {
-          document.getElementById('forma-pag').textContent = '🔀 Pagamento dividido:';
+          document.getElementById('forma-pag').textContent = '🔀 Pago dividido:';
           try {
             var partes = JSON.parse(obsp);
-            document.getElementById('obs-pag').innerHTML = partes.map(function(x, i) {
-              var l = (i + 1) + '. ' + x.metodo + ': Gs ' + parseFloat(x.valor).toLocaleString('es-PY');
-              if (x.troco) l += ' (Troco p/ ' + x.troco + ')';
-              return l;
-            }).join('<br>');
-          } catch(e) { document.getElementById('obs-pag').textContent = obsp; }
+            
+            if (Array.isArray(partes)) {
+              deveAbrirGaveta = partes.some(function(x) {
+                return x && x.metodo && metodosValidos.some(function(m) {
+                  return String(x.metodo).toLowerCase().includes(m);
+                });
+              });
+
+              document.getElementById('obs-pag').innerHTML = partes.map(function(x, i) {
+                var l = (i + 1) + '. ' + x.metodo + ': Gs ' + parseFloat(x.valor).toLocaleString('es-PY');
+                if (x.troco) l += ' (Vuelto p/ ' + x.troco + ')';
+                return l;
+              }).join('<br>');
+            } else {
+              document.getElementById('obs-pag').textContent = obsp;
+              deveAbrirGaveta = metodosValidos.some(function(m) {
+                return String(obsp).toLowerCase().includes(m);
+              });
+            }
+          } catch(e) { 
+            document.getElementById('obs-pag').textContent = obsp;
+            deveAbrirGaveta = metodosValidos.some(function(m) {
+              return String(obsp).toLowerCase().includes(m);
+            });
+          }
         } else {
           document.getElementById('forma-pag').textContent = met;
           document.getElementById('obs-pag').textContent   = obsp;
+
+          deveAbrirGaveta = metodosValidos.some(function(m) {
+            return String(met).toLowerCase().includes(m);
+          });
+        }
+        if (deveAbrirGaveta) {
+          fetch('http://127.0.0.1:9091/abrir', { method: 'POST', mode: 'cors' })
+          .catch(function(err) { console.error('Erro ao chamar gaveta:', err); });
         }
 
         // Factura
@@ -261,7 +315,7 @@
       } catch(e) {
         console.error(e);
         document.body.innerHTML =
-          '<p style="color:red;text-align:center;margin-top:40px">Erro ao ler o pedido.<br><small>' + e.message + '</small></p>';
+          '<p style="color:red;text-align:center;margin-top:40px">Error al leer el pedido.<br><small>' + e.message + '</small></p>';
       }
     };
   </script>

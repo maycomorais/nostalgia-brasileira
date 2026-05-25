@@ -26,7 +26,15 @@ main.menu-container { flex: 1; }
 }
 .header-content { display: flex; justify-content: space-between; align-items: center; }
 .logo-area { display: flex; align-items: center; gap: 10px; }
-.logo-area img { width: 40px; height: 40px; border-radius: 50%; }
+.logo-area img {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: contain;
+  forced-color-adjust: none;
+  -webkit-filter: none !important;
+  filter: none !important;
+}
 .store-details h1 { font-size: 1.1rem; color: var(--dark); }
 .badge-status { font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 4px; transition: all 0.3s ease; }
 .badge-status.open { color: #28a745; background: #e6ffea; }
@@ -1114,8 +1122,7 @@ footer {
     letter-spacing: 0.5px;
 }
 
-/* Lista de sabores (scrollable) */
-/* ── Lista de sabores: sem altura fixa, o modal inteiro rola ── */
+/* ── Lista de sabores: layout igual ao da referência ── */
 .pizza-sabores-lista {
     display: flex;
     flex-direction: column;
@@ -1126,7 +1133,7 @@ footer {
     background: #f9f9f9;
 }
 
-/* Cada sabor: card com foto */
+/* Cada sabor: flex row — [img] [info] [badge-tipo] */
 .pizza-sabor-item {
     display: flex;
     align-items: center;
@@ -1155,7 +1162,7 @@ footer {
     pointer-events: none;
 }
 
-/* Thumbnail: só aparece se produto tem foto */
+/* Thumbnail */
 .pizza-sabor-img {
     width: 48px;
     height: 48px;
@@ -1163,7 +1170,6 @@ footer {
     border-radius: 8px;
     flex-shrink: 0;
 }
-/* Sem foto: círculo de pizza pequeno */
 .pizza-sabor-emoji {
     width: 48px;
     height: 48px;
@@ -1175,6 +1181,8 @@ footer {
     font-size: 1.3rem;
     flex-shrink: 0;
 }
+
+/* Bloco de texto */
 .pizza-sabor-info { flex: 1; min-width: 0; }
 .pizza-sabor-nome {
     font-weight: 700;
@@ -1184,6 +1192,7 @@ footer {
     overflow: hidden;
     text-overflow: ellipsis;
 }
+/* Badge de preço diferencial ("+Gs X.XXX") */
 .pizza-sabor-preco {
     display: inline-block;
     font-size: 0.68rem;
@@ -1203,17 +1212,21 @@ footer {
     text-overflow: ellipsis;
 }
 
-/* Badge de tipo (Especial / Doce) — compacto, direita */
+/* Badge de tipo — flex sibling direto do item (alinhado à direita) */
 .pizza-sabor-tipo-badge {
     font-size: 0.58rem;
     font-weight: 800;
-    padding: 1px 5px;
+    padding: 2px 6px;
     border-radius: 6px;
     white-space: nowrap;
     flex-shrink: 0;
 }
-.pizza-sabor-tipo-badge.tipo-especial { background: #fff3cd; color: #856404; }
-.pizza-sabor-tipo-badge.tipo-doce { background: #fce4ec; color: #880e4f; }
+.pizza-sabor-tipo-badge.tipo-especial    { background: #fff3cd; color: #856404; }
+.pizza-sabor-tipo-badge.tipo-doce        { background: #fce4ec; color: #880e4f; }
+.pizza-sabor-tipo-badge.tipo-premium     { background: #ede9fe; color: #4c1d95; }
+.pizza-sabor-tipo-badge.tipo-doce-premium{ background: #fce4ec; color: #e91e8c; }
+.pizza-sabor-tipo-badge.tipo-vegano      { background: #d1fae5; color: #065f46; }
+.pizza-sabor-tipo-badge.tipo-picante     { background: #fee2e2; color: #991b1b; }
 
 /* Tag de fração (1/2, 2/4 etc.) */
 .pizza-fracao-tag {
