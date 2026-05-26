@@ -13,6 +13,29 @@ let _mens_planoEntregaAtual = null;
 let _mens_nomeRestaurante  = '';
 
 // ──────────────────────────────────────────────────────────────
+//  HELPERS DE TIPO (unidades vs kg)
+//  obs é armazenado como JSON: {"t":"kg","n":"nota do usuario"}
+//  Para retrocompatibilidade: se obs não for JSON válido, trata como nota texto
+// ──────────────────────────────────────────────────────────────
+function _mensObs(plano) {
+  try { return JSON.parse(plano.obs || 'null') || {}; } catch { return { n: plano.obs || '' }; }
+}
+function _mensGetTipo(plano)  { return _mensObs(plano).t || 'un'; }
+function _mensGetNota(plano)  { return _mensObs(plano).n || ''; }
+function _mensEncodeObs(tipo, nota) {
+  return JSON.stringify({ t: tipo, n: nota || '' });
+}
+
+// Armazenagem: unidades = valor inteiro; kg = valor * 10 (precisão 0,1 kg)
+function _mensKgToInt(kg)   { return Math.round(parseFloat(kg) * 10); }
+function _mensIntToKg(n)    { return (n / 10).toFixed(1); }
+
+function _mensFmtQtd(valorInt, tipo) {
+  if (tipo === 'kg') return _mensIntToKg(valorInt).replace('.', ',') + ' kg';
+  return valorInt + (valorInt === 1 ? ' unid.' : ' unids.');
+}
+
+// ──────────────────────────────────────────────────────────────
 //  INIT — chamado por showTab('mensalistas')
 // ──────────────────────────────────────────────────────────────
 async function initMensalistas() {
@@ -66,13 +89,28 @@ function _mensRenderKPIs() {
   const total   = _mens_planos.length;
   const ativos  = _mens_planos.filter(p => p.ativo).length;
   const receita = _mens_planos.reduce((s, p) => s + (p.valor_plano || 0), 0);
-  const itens   = _mens_planos.reduce((s, p) => s + (p.quantidade_restante || 0), 0);
+
+  // Itens restantes: soma de unidades + kg separados para exibição
+  const itensPorTipo = _mens_planos.reduce((acc, p) => {
+    const tipo = _mensGetTipo(p);
+    if (tipo === 'kg') acc.kg += (p.quantidade_restante || 0);
+    else acc.un += (p.quantidade_restante || 0);
+    return acc;
+  }, { un: 0, kg: 0 });
+
+  let itensTxt = '';
+  if (itensPorTipo.un > 0 && itensPorTipo.kg > 0)
+    itensTxt = `${itensPorTipo.un} un + ${_mensIntToKg(itensPorTipo.kg).replace('.',',')} kg`;
+  else if (itensPorTipo.kg > 0)
+    itensTxt = `${_mensIntToKg(itensPorTipo.kg).replace('.',',')} kg`;
+  else
+    itensTxt = String(itensPorTipo.un);
 
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
   set('mens-kpi-total',   total);
   set('mens-kpi-ativos',  ativos);
   set('mens-kpi-receita', `Gs ${Math.round(receita).toLocaleString('es-PY')}`);
-  set('mens-kpi-itens',   itens);
+  set('mens-kpi-itens',   itensTxt);
 }
 
 function mensRenderPlanos() {
@@ -98,21 +136,25 @@ function mensRenderPlanos() {
     cont.innerHTML = `
       <div style="text-align:center;color:#aaa;padding:40px">
         <div style="font-size:2rem;margin-bottom:8px">📋</div>
-        <div>${busca || filtro !== 'todos' ? t('mens.nenhum_filtro', 'Nenhum plano encontrado com este filtro.') : t('mens.nenhum_registrado', 'Nenhum plano mensal registrado ainda.')}</div>
+        <div>${t('mens.nenhum_plano', 'Nenhum plano mensal registrado ainda.')}</div>
       </div>`;
     return;
   }
 
   cont.innerHTML = planos.map(p => {
-    const qtdTotal    = p.quantidade_total || 0;
-    const qtdRest     = p.quantidade_restante || 0;
-    const pct         = qtdTotal > 0 ? Math.round((qtdRest / qtdTotal) * 100) : 0;
-    const barColor    = pct > 50 ? '#1a7a2e' : pct > 20 ? '#f39c12' : '#e74c3c';
-    const statusColor = p.ativo ? '#1a7a2e' : '#9ca3af';
-    const dataFim     = p.data_fim
+    const tipo         = _mensGetTipo(p);
+    const qtdTotal     = p.quantidade_total || 0;
+    const qtdRest      = p.quantidade_restante || 0;
+    const pct          = qtdTotal > 0 ? Math.round((qtdRest / qtdTotal) * 100) : 0;
+    const barColor     = pct > 50 ? '#1a7a2e' : pct > 20 ? '#f39c12' : '#e74c3c';
+    const statusColor  = p.ativo ? '#1a7a2e' : '#9ca3af';
+    const dataFim      = p.data_fim
       ? new Date(p.data_fim + 'T12:00:00').toLocaleDateString('es-PY')
       : t('geral.indeterminado', 'Indeterminado');
-    const vencendo    = p.data_fim && new Date(p.data_fim) < new Date(Date.now() + 7 * 86400000);
+    const vencendo     = p.data_fim && new Date(p.data_fim) < new Date(Date.now() + 7 * 86400000);
+    const fmtRest      = _mensFmtQtd(qtdRest, tipo);
+    const fmtTotal     = _mensFmtQtd(qtdTotal, tipo);
+    const esgotado     = qtdRest <= 0 && p.ativo;
 
     return `
       <div style="background:#fff;border:1.5px solid ${p.ativo ? '#d1fae5' : '#e5e7eb'};border-radius:14px;padding:16px;margin-bottom:12px;box-shadow:0 1px 4px rgba(0,0,0,0.05)">
@@ -120,7 +162,9 @@ function mensRenderPlanos() {
           <div style="flex:1;min-width:0">
             <div style="font-weight:700;font-size:1rem;margin-bottom:2px">${p.clientes?.nome || '—'}</div>
             <div style="color:#6b7280;font-size:0.82rem">${p.clientes?.telefone || ''}</div>
-            <div style="font-weight:600;font-size:0.9rem;margin-top:6px;color:#111">📦 ${p.produto_nome}</div>
+            <div style="font-weight:600;font-size:0.9rem;margin-top:6px;color:#111">
+              ${tipo === 'kg' ? '⚖️' : '📦'} ${p.produto_nome}
+            </div>
           </div>
           <div style="text-align:right;flex-shrink:0">
             <span style="background:${p.ativo ? '#dcfce7' : '#f3f4f6'};color:${statusColor};padding:3px 11px;border-radius:10px;font-size:0.73rem;font-weight:700">
@@ -137,7 +181,7 @@ function mensRenderPlanos() {
 
         <div style="margin-top:12px">
           <div style="display:flex;justify-content:space-between;font-size:0.82rem;margin-bottom:5px">
-            <span style="color:#555">${t('mens.saldo_itens', 'Saldo de itens:')} <b style="color:#111">${qtdRest} ${t('mens.restantes', 'restantes')}</b> de ${qtdTotal}</span>
+            <span style="color:#555">${t('mens.saldo_itens', 'Saldo:')} <b style="color:#111">${fmtRest}</b> de ${fmtTotal}</span>
             <span style="color:${barColor};font-weight:700">${pct}%</span>
           </div>
           <div style="background:#f0f0f0;border-radius:6px;height:9px;overflow:hidden">
@@ -149,8 +193,8 @@ function mensRenderPlanos() {
           ${p.ativo && qtdRest > 0 ? `
           <button onclick="mensAbrirEntrega(${p.id})"
             style="flex:2;padding:9px;background:#1a7a2e;color:#fff;border:none;border-radius:9px;cursor:pointer;font-size:0.83rem;font-weight:700;min-width:120px">
-            📦 ${t('mens.registrar_entrega', 'Registrar Entrega')}
-          </button>` : (qtdRest <= 0 && p.ativo ? `
+            ${tipo === 'kg' ? '⚖️' : '📦'} ${t('mens.registrar_entrega', 'Registrar Entrega')}
+          </button>` : (esgotado ? `
           <div style="flex:2;padding:9px;background:#fef3c7;color:#92400e;border-radius:9px;font-size:0.82rem;font-weight:600;text-align:center;min-width:120px">
             ✅ ${t('mens.plano_esgotado', 'Plano esgotado')}
           </div>` : '')}
@@ -176,16 +220,46 @@ function mensRenderPlanos() {
 // ──────────────────────────────────────────────────────────────
 //  MODAL NOVO / EDITAR PLANO
 // ──────────────────────────────────────────────────────────────
-function mensAbrirModalPlano(id = null) {
-  const p = id ? _mens_planos.find(p => p.id === id) : null;
+function mensToggleTipoPlano() {
+  const tipo  = document.getElementById('mens-plano-tipo')?.value || 'un';
+  const label = document.getElementById('mens-plano-qtd-label');
+  const input = document.getElementById('mens-plano-qtd');
+  if (tipo === 'kg') {
+    if (label) label.textContent = 'Peso total contratado (kg) *';
+    if (input) { input.placeholder = 'Ex: 5.0'; input.step = '0.1'; input.min = '0.1'; }
+  } else {
+    if (label) label.textContent = 'Qtd Total de Itens *';
+    if (input) { input.placeholder = 'Ex: 22'; input.step = '1'; input.min = '1'; }
+  }
+}
 
-  document.getElementById('mens-plano-id').value    = p?.id || '';
-  document.getElementById('mens-plano-cli-id').value = p?.cliente_id || '';
+function mensAbrirModalPlano(id = null) {
+  const p    = id ? _mens_planos.find(p => p.id === id) : null;
+  const tipo = p ? _mensGetTipo(p) : 'un';
+  const nota = p ? _mensGetNota(p) : '';
+
+  document.getElementById('mens-plano-id').value     = p?.id || '';
+  document.getElementById('mens-plano-cli-id').value  = p?.cliente_id || '';
   document.getElementById('mens-plano-produto').value = p?.produto_nome || '';
-  document.getElementById('mens-plano-qtd').value   = p?.quantidade_total || '';
-  document.getElementById('mens-plano-valor').value = p?.valor_plano || '';
-  document.getElementById('mens-plano-ini').value   = p?.data_inicio || new Date().toISOString().split('T')[0];
-  document.getElementById('mens-plano-fim').value   = p?.data_fim || '';
+  document.getElementById('mens-plano-valor').value   = p?.valor_plano || '';
+  document.getElementById('mens-plano-ini').value     = p?.data_inicio || new Date().toISOString().split('T')[0];
+  document.getElementById('mens-plano-fim').value     = p?.data_fim || '';
+  document.getElementById('mens-plano-nota').value    = nota;
+
+  // Tipo
+  const selTipo = document.getElementById('mens-plano-tipo');
+  if (selTipo) selTipo.value = tipo;
+
+  // Quantidade — exibir em unidade display (kg ou int)
+  const qtdInput = document.getElementById('mens-plano-qtd');
+  if (qtdInput) {
+    if (tipo === 'kg') {
+      qtdInput.value = p ? _mensIntToKg(p.quantidade_total) : '';
+    } else {
+      qtdInput.value = p?.quantidade_total || '';
+    }
+  }
+  mensToggleTipoPlano();
 
   const chkAtivo = document.getElementById('mens-plano-ativo');
   if (chkAtivo) chkAtivo.checked = p ? p.ativo : true;
@@ -201,7 +275,7 @@ function mensAbrirModalPlano(id = null) {
       document.getElementById('mens-plano-cli-id').value = selCli.value;
     };
   }
- 
+
   // Popula select de produtos
   const selProd = document.getElementById('mens-plano-prod-sel');
   if (selProd) {
@@ -218,10 +292,11 @@ function mensAbrirModalPlano(id = null) {
   const infoRenov = document.getElementById('mens-renov-info');
   if (infoRenov) {
     if (p) {
+      const saldoFmt = _mensFmtQtd(p.quantidade_restante, tipo);
       infoRenov.style.display = 'block';
       infoRenov.innerHTML = `
         <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 14px;font-size:0.82rem;color:#1e40af;margin-bottom:14px">
-          ${t('mens.renovacao_info', '<b>Renovação:</b> Ao modificar a quantidade total, o saldo restante será ajustado proporcionalmente.<br>Saldo atual: <b>{qtd} itens</b>.').replace('{qtd}', p.quantidade_restante)}
+          ${t('mens.renovacao_info', '<b>Renovação:</b> Ao modificar a quantidade total, o saldo restante será ajustado proporcionalmente.<br>Saldo atual: <b>{qtd}</b>.').replace('{qtd}', saldoFmt)}
         </div>`;
     } else {
       infoRenov.style.display = 'none';
@@ -236,15 +311,24 @@ async function mensSalvarPlano() {
   const id           = document.getElementById('mens-plano-id').value;
   const cliente_id   = parseInt(document.getElementById('mens-plano-cli-id').value) || null;
   const produto_nome = document.getElementById('mens-plano-produto').value.trim();
-  const qtd_total    = parseInt(document.getElementById('mens-plano-qtd').value) || 0;
+  const tipo         = document.getElementById('mens-plano-tipo')?.value || 'un';
+  const qtdRaw       = document.getElementById('mens-plano-qtd').value;
+  const nota         = document.getElementById('mens-plano-nota')?.value.trim() || '';
   const valor        = parseFloat(document.getElementById('mens-plano-valor').value) || 0;
   const data_ini     = document.getElementById('mens-plano-ini').value || null;
   const data_fim     = document.getElementById('mens-plano-fim').value || null;
   const ativo        = document.getElementById('mens-plano-ativo')?.checked ?? true;
 
+  // Converter para inteiro de armazenamento
+  const qtd_total = tipo === 'kg'
+    ? _mensKgToInt(qtdRaw)
+    : (parseInt(qtdRaw) || 0);
+
   if (!cliente_id)    { alert(t('mens.alerta_cliente', 'Selecione o cliente.')); return; }
   if (!produto_nome)  { alert(t('mens.alerta_produto', 'Insira o produto/item do plano.')); return; }
-  if (qtd_total <= 0) { alert(t('mens.alerta_qtd', 'Insira a quantidade total de itens (ex: 22 refeições).')); return; }
+  if (qtd_total <= 0) { alert(tipo === 'kg'
+      ? 'Insira o peso total em kg (ex: 5.0).'
+      : t('mens.alerta_qtd', 'Insira a quantidade total de itens (ex: 22 refeições).')); return; }
   if (valor <= 0)     { alert(t('mens.alerta_valor', 'Insira o valor do plano.')); return; }
 
   const payload = {
@@ -255,11 +339,11 @@ async function mensSalvarPlano() {
     data_inicio: data_ini,
     data_fim,
     ativo,
+    obs: _mensEncodeObs(tipo, nota),
   };
 
   let error;
   if (id) {
-    // Em caso de edição, ajusta quantidade_restante se a total mudou
     const planoAtual = _mens_planos.find(p => p.id == id);
     if (planoAtual && qtd_total !== planoAtual.quantidade_total) {
       const diferenca = qtd_total - planoAtual.quantidade_total;
@@ -283,21 +367,51 @@ function mensAbrirEntrega(planoId) {
   _mens_planoEntregaAtual = _mens_planos.find(p => p.id === planoId);
   if (!_mens_planoEntregaAtual) return;
 
-  const p = _mens_planoEntregaAtual;
+  const p    = _mens_planoEntregaAtual;
+  const tipo = _mensGetTipo(p);
+  const isKg = tipo === 'kg';
 
-  document.getElementById('mens-ent-plano-id').value     = p.id;
-  document.getElementById('mens-ent-cliente').textContent = p.clientes?.nome || '—';
-  document.getElementById('mens-ent-tel').textContent     = p.clientes?.telefone || '';
-  document.getElementById('mens-ent-produto').textContent = p.produto_nome;
-  document.getElementById('mens-ent-saldo').textContent   = `${p.quantidade_restante} de ${p.quantidade_total} ${t('mens.disponiveis', 'disponíveis')}`;
-  document.getElementById('mens-ent-qtd').value = 1;
-  document.getElementById('mens-ent-qtd').max   = p.quantidade_restante;
-  document.getElementById('mens-ent-obs').value = '';
+  document.getElementById('mens-ent-plano-id').value      = p.id;
+  document.getElementById('mens-ent-cliente').textContent  = p.clientes?.nome || '—';
+  document.getElementById('mens-ent-tel').textContent      = p.clientes?.telefone || '';
+  document.getElementById('mens-ent-produto').textContent  = p.produto_nome;
+  document.getElementById('mens-ent-obs').value  = '';
 
+  // Saldo
+  const fmtRest  = _mensFmtQtd(p.quantidade_restante, tipo);
+  const fmtTotal = _mensFmtQtd(p.quantidade_total, tipo);
+  document.getElementById('mens-ent-saldo').textContent = `${fmtRest} de ${fmtTotal} ${t('mens.disponiveis', 'disponíveis')}`;
+
+  // Input de quantidade
+  const qtdInput = document.getElementById('mens-ent-qtd');
+  const qtdLabel = document.getElementById('mens-ent-qtd-label');
+  if (isKg) {
+    qtdInput.step  = '0.1';
+    qtdInput.min   = '0.1';
+    qtdInput.value = '0.5';
+    qtdInput.max   = _mensIntToKg(p.quantidade_restante);
+    if (qtdLabel) qtdLabel.textContent = 'Peso entregue (kg) *';
+  } else {
+    qtdInput.step  = '1';
+    qtdInput.min   = '1';
+    qtdInput.value = '1';
+    qtdInput.max   = p.quantidade_restante;
+    if (qtdLabel) qtdLabel.textContent = t('mens.qtd_entregue', 'Quantidade entregue *');
+  }
+
+  // Valor unitário
   const elValor = document.getElementById('mens-ent-valor-unit');
   if (elValor) {
-    const valorUnit = p.quantidade_total > 0 ? (p.valor_plano / p.quantidade_total) : 0;
-    elValor.textContent = `Gs ${Math.round(valorUnit).toLocaleString('es-PY')} /un`;
+    if (p.quantidade_total > 0) {
+      const valorUnit = p.valor_plano / p.quantidade_total;
+      if (isKg) {
+        elValor.textContent = `Gs ${Math.round(valorUnit * 10).toLocaleString('es-PY')} /kg`;
+      } else {
+        elValor.textContent = `Gs ${Math.round(valorUnit).toLocaleString('es-PY')} /un`;
+      }
+    } else {
+      elValor.textContent = '';
+    }
   }
 
   document.getElementById('modal-mens-entrega').style.display = 'flex';
@@ -306,22 +420,28 @@ function mensAbrirEntrega(planoId) {
 
 async function mensSalvarEntrega() {
   const planoId = parseInt(document.getElementById('mens-ent-plano-id').value);
-  const qtd     = parseInt(document.getElementById('mens-ent-qtd').value) || 1;
   const obs     = document.getElementById('mens-ent-obs').value.trim();
 
-  const p = _mens_planos.find(p => p.id === planoId);
+  const p    = _mens_planos.find(p => p.id === planoId);
   if (!p) return;
+
+  const tipo = _mensGetTipo(p);
+  const isKg = tipo === 'kg';
+
+  // Quantidade: se kg, converter input decimal → inteiro de armazenamento
+  const qtdRaw = document.getElementById('mens-ent-qtd').value;
+  const qtd    = isKg ? _mensKgToInt(qtdRaw) : (parseInt(qtdRaw) || 1);
 
   if (qtd <= 0) {
     alert(t('mens.alerta_qtd_valida', 'Insira uma quantidade válida.'));
     return;
   }
   if (qtd > p.quantidade_restante) {
-    alert(t('mens.alerta_saldo_insuficiente', 'Saldo insuficiente. Máximo disponível: {qtd} itens.').replace('{qtd}', p.quantidade_restante));
+    const max = isKg ? _mensIntToKg(p.quantidade_restante) + ' kg' : p.quantidade_restante + ' itens';
+    alert(t('mens.alerta_saldo_insuficiente', 'Saldo insuficiente. Máximo disponível: {qtd}.').replace('{qtd}', max));
     return;
   }
 
-  // Registra entrega — NÃO entra no financeiro (tabela separada, sem inserir em 'pedidos')
   const { data: entrega, error: errEnt } = await supa
     .from('mensalista_entregas')
     .insert([{
@@ -336,7 +456,6 @@ async function mensSalvarEntrega() {
 
   if (errEnt) { alert(t('mens.erro_registrar', 'Erro ao registrar entrega: ') + errEnt.message); return; }
 
-  // Atualiza saldo restante
   const novoRestante = p.quantidade_restante - qtd;
   const { error: errUp } = await supa
     .from('planos_mensalistas')
@@ -346,25 +465,27 @@ async function mensSalvarEntrega() {
   if (errUp) { alert(t('mens.erro_saldo', 'Erro ao atualizar saldo: ') + errUp.message); return; }
 
   fecharModal('modal-mens-entrega');
-
-  // Atualiza estado local imediatamente
   p.quantidade_restante = novoRestante;
   _mensRenderKPIs();
   mensRenderPlanos();
 
-  // Pergunta se quer imprimir comprovante
+  const novoRestFmt = _mensFmtQtd(novoRestante, tipo);
+  const qtdFmt      = _mensFmtQtd(qtd, tipo);
   const imprimir = confirm(
-    t('mens.confirm_sucesso', '✅ Entrega registrada com sucesso!\nSaldo restante: {novoRestante} itens\n\nDeseja imprimir o comprovante para o cliente assinar?').replace('{novoRestante}', novoRestante)
+    t('mens.confirm_sucesso', '✅ Entrega registrada com sucesso!\nEntregue: {qtd}\nSaldo restante: {novoRestante}\n\nDeseja imprimir o comprovante para o cliente assinar?')
+      .replace('{qtd}', qtdFmt)
+      .replace('{novoRestante}', novoRestFmt)
   );
   if (imprimir) {
-    mensImprimirComprovante(p, qtd, obs, entrega?.id, entrega?.created_at, novoRestante);
+    mensImprimirComprovante(p, qtd, obs, entrega?.id, entrega?.created_at, novoRestante, tipo);
   }
 }
 
 // ──────────────────────────────────────────────────────────────
 //  IMPRIMIR COMPROVANTE
 // ──────────────────────────────────────────────────────────────
-function mensImprimirComprovante(plano, qtd, obs, entregaId, dataEntrega, saldoApos) {
+function mensImprimirComprovante(plano, qtd, obs, entregaId, dataEntrega, saldoApos, tipo) {
+  tipo = tipo || _mensGetTipo(plano);
   const cliente  = plano.clientes || {};
   const dataFmt  = dataEntrega
     ? new Date(dataEntrega).toLocaleString('es-PY', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })
@@ -372,7 +493,11 @@ function mensImprimirComprovante(plano, qtd, obs, entregaId, dataEntrega, saldoA
   const dataFim  = plano.data_fim
     ? new Date(plano.data_fim + 'T12:00:00').toLocaleDateString('es-PY')
     : t('geral.indeterminado', 'Indeterminado');
-  const saldoAnt = (saldoApos !== undefined ? saldoApos : plano.quantidade_restante) + qtd;
+  const saldoAnt = ((saldoApos !== undefined ? saldoApos : plano.quantidade_restante) + qtd);
+  const qtdFmt   = _mensFmtQtd(qtd, tipo);
+  const restFmt  = _mensFmtQtd(saldoApos !== undefined ? saldoApos : plano.quantidade_restante, tipo);
+  const totFmt   = _mensFmtQtd(plano.quantidade_total, tipo);
+  const antFmt   = _mensFmtQtd(saldoAnt, tipo);
 
   const html = `<!DOCTYPE html>
 <html lang="es">
@@ -388,7 +513,6 @@ function mensImprimirComprovante(plano, qtd, obs, entregaId, dataEntrega, saldoA
     .big  { font-size:16px; font-weight:900; letter-spacing:1px; text-transform:uppercase; }
     .med  { font-size:14px; font-weight:700; }
     .sm   { font-size:11px; color:#555; }
-    .tag  { display:inline-block; background:#dcfce7; color:#166534; padding:2px 8px; border-radius:8px; font-size:11px; font-weight:700; }
     .row  { display:flex; justify-content:space-between; padding:3px 0; font-size:12px; gap:6px; }
     .row b { color:#111; }
     .saldo-box { background:#f0fdf4; border:1.5px solid #86efac; border-radius:8px; padding:10px 12px; margin:8px 0; text-align:center; }
@@ -420,17 +544,17 @@ function mensImprimirComprovante(plano, qtd, obs, entregaId, dataEntrega, saldoA
   <div class="row"><span>Tel:</span><b>${cliente.telefone || '—'}</b></div>
   <hr>
   <div class="row"><span>${t('mens.ticket_plano', 'Plano / Item')}:</span><b>${plano.produto_nome}</b></div>
-  <div class="row"><span>${t('mens.ticket_entregada', 'Qtd. entregue')}:</span><b>${qtd} ${qtd === 1 ? t('mens.ticket_unidade', 'unidade') : t('mens.ticket_unidades', 'unidades')}</b></div>
+  <div class="row"><span>${t('mens.ticket_entregada', 'Qtd. entregue')}:</span><b>${qtdFmt}</b></div>
   ${obs ? `<div class="row"><span>Obs:</span><span>${obs}</span></div>` : ''}
   <div class="row"><span>${t('mens.ticket_valor', 'Valor do plano')}:</span><b>Gs ${Math.round(plano.valor_plano || 0).toLocaleString('es-PY')}</b></div>
   <div class="row"><span>${t('geral.vencimento', 'Vencimento')}:</span><b>${dataFim}</b></div>
   <hr>
   <div class="saldo-box">
     <div class="lab">${t('mens.ticket_saldo_restante', 'SALDO RESTANTE APÓS ESTA ENTREGA')}</div>
-    <div class="num">${saldoApos !== undefined ? saldoApos : plano.quantidade_restante}</div>
-    <div class="lab">${t('mens.ticket_contratados', 'de {qtd} itens contratados').replace('{qtd}', plano.quantidade_total)}</div>
+    <div class="num">${restFmt}</div>
+    <div class="lab">${t('mens.ticket_contratados', 'de {qtd} contratados').replace('{qtd}', totFmt)}</div>
   </div>
-  <div class="center sm" style="margin-top:4px">${t('mens.ticket_saldo_anterior', 'Saldo anterior')}: ${saldoAnt} ${t('mens.restantes', 'restantes')}</div>
+  <div class="center sm" style="margin-top:4px">${t('mens.ticket_saldo_anterior', 'Saldo anterior')}: ${antFmt}</div>
   <hr>
   <div class="assinatura">
     <div style="font-size:11px;color:#555;margin-bottom:16px">
@@ -464,6 +588,8 @@ async function mensVerHistorico(planoId) {
   const p = _mens_planos.find(p => p.id === planoId);
   if (!p) return;
 
+  const tipo = _mensGetTipo(p);
+
   const { data } = await supa
     .from('mensalista_entregas')
     .select('*')
@@ -477,7 +603,7 @@ async function mensVerHistorico(planoId) {
       <td style="font-size:0.8rem;color:#888;white-space:nowrap">
         ${new Date(e.created_at).toLocaleString('es-PY', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' })}
       </td>
-      <td style="text-align:center;font-weight:700;color:#1a7a2e">${e.quantidade}</td>
+      <td style="text-align:center;font-weight:700;color:#1a7a2e">${_mensFmtQtd(e.quantidade, tipo)}</td>
       <td style="font-size:0.8rem;color:#555">${e.observacoes || '—'}</td>
       <td style="text-align:center">
         <button onclick="mensReimprimirEntrega(${e.id}, ${planoId})"
@@ -488,13 +614,13 @@ async function mensVerHistorico(planoId) {
     </tr>`
   ).join('') || '<tr><td colspan="4" style="text-align:center;color:#aaa;padding:12px">' + t('mens.nenhuma_entrega', 'Nenhuma entrega registrada ainda') + '</td></tr>';
 
-  document.getElementById('mens-hist-nome').textContent     = p.clientes?.nome || '—';
-  document.getElementById('mens-hist-produto').textContent  = p.produto_nome;
-  document.getElementById('mens-hist-plano-total').textContent = p.quantidade_total;
-  document.getElementById('mens-hist-plano-rest').textContent  = p.quantidade_restante;
-  document.getElementById('mens-hist-entregues').textContent   = entregasTotal;
-  document.getElementById('mens-hist-tbody').innerHTML       = linhas;
-  document.getElementById('modal-mens-hist').style.display  = 'flex';
+  document.getElementById('mens-hist-nome').textContent        = p.clientes?.nome || '—';
+  document.getElementById('mens-hist-produto').textContent     = p.produto_nome;
+  document.getElementById('mens-hist-plano-total').textContent = _mensFmtQtd(p.quantidade_total, tipo);
+  document.getElementById('mens-hist-plano-rest').textContent  = _mensFmtQtd(p.quantidade_restante, tipo);
+  document.getElementById('mens-hist-entregues').textContent   = _mensFmtQtd(entregasTotal, tipo);
+  document.getElementById('mens-hist-tbody').innerHTML         = linhas;
+  document.getElementById('modal-mens-hist').style.display     = 'flex';
 }
 
 async function mensReimprimirEntrega(entregaId, planoId) {
@@ -507,7 +633,6 @@ async function mensReimprimirEntrega(entregaId, planoId) {
   const p = _mens_planos.find(p => p.id === planoId);
   if (!e || !p) return;
 
-  // Calcula saldo após essa entrega baseado na data
   const { data: posteriores } = await supa
     .from('mensalista_entregas')
     .select('quantidade')
