@@ -168,6 +168,8 @@ function mensRenderPlanos() {
             🗑️
           </button>
         </div>
+      </div>
+    `;
   }).join('');
 }
 
