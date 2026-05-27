@@ -185,7 +185,7 @@
           <p>Este contrato es civil, oneroso y de prestación de servicios, sin relación laboral.</p>
 
           <span class="clausula">Cláusula Tercera: Vigencia</span>
-          <p>El contrato tendrá duración de 06 (seis) meses, renovable automáticamente.</p>
+          <p>El contrato tendrá duración de 12 (doce) meses, renovable automáticamente.</p>
 
           <span class="clausula">Cláusula Cuarta: Implementación</span>
           <p>El sistema será instalado dentro de 30 días desde el pago inicial.</p>
@@ -198,7 +198,7 @@
           <p>El incumplimiento de pagos generará: a) Suspensión automática pasado 3 días, b) Intereses por mora, c) Penalidad del 10% del valor mensual, d) Rescisión con obligación de pago del 50% del saldo restante.</p>
 
           <span class="clausula">Cláusula Séptima: Cláusula de Permanencia</span>
-          <p>El CLIENTE se compromete a mantener el servicio durante 6 meses. La cancelación anticipada implicará el pago del 50% de las mensualidades restantes.</p>
+          <p>El CLIENTE se compromete a mantener el servicio durante 12 meses. La cancelación anticipada implicará el pago del 50% de las mensualidades restantes.</p>
 
           <span class="clausula">Cláusula Octava: Exclusividad</span>
           <p>Durante la vigencia, el CLIENTE no podrá contratar sistemas similares sin autorización escrita del PRESTADOR, con excepción de marketplaces internacionales (PEDIDOS YA, MONCHIS, UBER EATS, RAPPI).</p>
@@ -231,7 +231,7 @@
           <p>El contrato podrá terminar: a) Por incumplimiento, b) Por falta de pago, c) Por mutuo acuerdo.</p>
 
           <span class="clausula">Cláusula Décimo Octava: Indemnización</span>
-          <p>El incumplimiento de confidencialidad, competencia o uso indebido generará indemnización y multa mínima equivalente a 06 mensualidades.</p>
+          <p>El incumplimiento de confidencialidad, competencia o uso indebido generará indemnización y multa mínima equivalente a 12 mensualidades.</p>
 
           <span class="clausula">Cláusula Décimo Novena: Jurisdicción</span>
           <p>Las partes se someten a los tribunales de Asunción, Paraguay, renunciando a cualquier otro fuero.</p>
@@ -325,6 +325,19 @@
 
   async function verificarContrato(session) {
     try {
+      // 1. Busca o cargo do usuário — só "dono" precisa assinar
+      const { data: perfil } = await supa
+        .from('perfis_acesso')
+        .select('cargo')
+        .eq('id', session.user.id)
+        .maybeSingle();
+
+      const cargo = perfil?.cargo || 'funcionario';
+
+      // adminMaster e qualquer cargo que não seja "dono" passam direto
+      if (cargo !== 'dono') { window.location.href = 'admin.html'; return; }
+
+      // 2. Só chegou aqui se for "dono" — verifica se já assinou
       const { data, error } = await supa.from('contratos_aceites')
         .select('id').eq('usuario_id', session.user.id).eq('aceito', true).maybeSingle();
       if (error) throw new Error(error.message);
