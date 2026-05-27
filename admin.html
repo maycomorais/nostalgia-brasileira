@@ -488,8 +488,7 @@
                   onclick="pdvSelecionarTipo('delivery',this)">🛵 <span data-i18n="pdv.tipo_delivery">Delivery</span></button>
                 <button class="pdv-tipo-tab" data-tipo="retirada"
                   onclick="pdvSelecionarTipo('retirada',this)">🚶 <span data-i18n="pdv.tipo_retirada">Retirada</span></button>
-                <button class="pdv-tipo-tab" data-tipo="local"
-                  onclick="pdvSelecionarTipo('local',this)">🍽️ <span data-i18n="pdv.tipo_local">Local</span></button>
+
               </div>
               <input type="hidden" id="balcao-tipo-entrega" value="balcao">
 
@@ -566,12 +565,12 @@
 
               <!-- Tabela de itens -->
               <div class="pdv-dir-lista-wrap">
-                <table class="pdv-dir-table">
+<table class="pdv-dir-table">
                   <thead><tr>
                     <th data-i18n="prod.title">Produto</th>
-                    <th class="tc">Qtde</th>
-                    <th class="tr">Unit.</th>
-                    <th class="tr">Total</th>
+                    <th class="tc" style="width:34px">Qtde</th>
+                    <th class="tr" style="width:72px">Total</th>
+                    <th style="width:52px"></th>
                   </tr></thead>
                   <tbody id="pdv-lista" class="pdv-dir-tbody"></tbody>
                 </table>
@@ -606,6 +605,21 @@
                   <option value="Multipagamento">🔀 Dividir</option>
                 </select>
                 <div id="balcao-pag-info" style="display:none;background:#e8f5e9;border:1px solid #4caf50;border-radius:5px;padding:5px 8px;font-size:0.82rem;color:#1b5e20;margin-top:3px"></div>
+                <!-- Troco Efetivo -->
+                <div id="pdv-efetivo-box" style="display:none;margin-top:6px">
+                  <label style="font-size:0.75rem;font-weight:700;color:#555;display:block;margin-bottom:3px">💵 Valor recebido (Gs)</label>
+                  <input type="number" id="pdv-efetivo-recebido" class="pdv-dir-input" placeholder="0"
+                    min="0" step="1000" oninput="pdvCalcularTroco()"
+                    style="text-align:center;font-size:1rem;font-weight:700" />
+                  <div id="pdv-troco-box" style="display:none;margin-top:5px;padding:6px 10px;border-radius:6px;background:#fff3e0;border:1.5px solid #ff9800;text-align:center">
+                    <span style="font-size:0.75rem;color:#e65100;font-weight:600">Troco / Vuelta</span><br>
+                    <span id="pdv-troco-val" style="font-size:1.1rem;font-weight:900;color:#e65100">Gs 0</span>
+                  </div>
+                  <div id="pdv-troco-falta" style="display:none;margin-top:5px;padding:6px 10px;border-radius:6px;background:#fce4ec;border:1.5px solid #e91e63;text-align:center">
+                    <span style="font-size:0.75rem;color:#880e4f;font-weight:600">Falta / Falta</span><br>
+                    <span id="pdv-troco-falta-val" style="font-size:1.1rem;font-weight:900;color:#880e4f">Gs 0</span>
+                  </div>
+                </div>
               </div>
 
               <!-- Multipagamento -->
