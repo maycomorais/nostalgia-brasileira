@@ -812,8 +812,8 @@ select.form-control, select.input-modern {
 .pdv-dir-input:focus { border-color: var(--primary); }
 
 /* Item table */
-.pdv-dir-lista-wrap { flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; min-height: 60px; }
-.pdv-dir-table { width: 100%; border-collapse: collapse; font-size: 0.76rem; table-layout: fixed; }
+.pdv-dir-lista-wrap { flex: 1; overflow-y: auto; scrollbar-width: thin; min-height: 60px; }
+.pdv-dir-table { width: 100%; border-collapse: collapse; font-size: 0.76rem; }
 .pdv-dir-table thead th {
     padding: 4px 5px; text-align: left;
     font-weight: 700; color: #555; font-size: 0.69rem;
@@ -827,25 +827,13 @@ select.form-control, select.input-modern {
 .pdv-dir-tbody td { padding: 4px 5px; vertical-align: middle; }
 .pdv-dir-tbody td.tc { text-align: center; }
 .pdv-dir-tbody td.tr { text-align: right; font-weight: 700; color: #333; }
-.pdv-item-nome { font-size: 0.74rem; font-weight: 600; color: #222; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pdv-item-nome { font-size: 0.74rem; font-weight: 600; color: #222; }
 .pdv-item-qtd { color: var(--primary); font-weight: 800; }
 .pdv-item-remove {
-    color: #e74c3c; background: #fdecea; border: 1px solid #ef9a9a;
-    cursor: pointer; font-size: 0.75rem; padding: 3px 6px;
-    border-radius: 5px; font-weight: 700; opacity: 0.85; line-height: 1;
+    color: #e74c3c; background: none; border: none;
+    cursor: pointer; font-size: 0.8rem; padding: 0 1px; opacity: 0.7;
 }
-.pdv-item-remove:hover { opacity: 1; background: #e74c3c; color: #fff; border-color: #e74c3c; }
-.pdv-item-edit {
-    color: #1565c0; background: #e8f4fd; border: 1px solid #90caf9;
-    cursor: pointer; font-size: 0.72rem; padding: 3px 5px;
-    border-radius: 5px; opacity: 0.85; line-height: 1;
-}
-.pdv-item-edit:hover { opacity: 1; background: #1565c0; color: #fff; border-color: #1565c0; }
-/* Column widths — table-layout:fixed distributes from th widths; td nome clips with ellipsis */
-.pdv-dir-table col:nth-child(1) { width: auto; }
-.pdv-dir-table th:nth-child(2), .pdv-dir-tbody td:nth-child(2) { width: 36px; text-align: center; white-space: nowrap; }
-.pdv-dir-table th:nth-child(3), .pdv-dir-tbody td:nth-child(3) { width: 76px; text-align: right; white-space: nowrap; }
-.pdv-dir-table th:nth-child(4), .pdv-dir-tbody td:nth-child(4) { width: 60px; text-align: right; white-space: nowrap; }
+.pdv-item-remove:hover { opacity: 1; }
 .pdv-item-existente td { color: #888; font-style: italic; }
 .pdv-item-entregue td { text-decoration: line-through; opacity: 0.5; }
 .pdv-lista-vazio { text-align: center; color: #bbb; padding: 16px; font-size: 0.8rem; }
@@ -963,8 +951,9 @@ select.form-control, select.input-modern {
     }
     .pdv-tipo-tab { font-size: 0.62rem; padding: 8px 2px; }
 
-    /* Mobile: table columns adjust — Unitário column was removed, no hide needed */
-
+    /* Mobile: table columns adjust */
+    .pdv-dir-table th:nth-child(3),
+    .pdv-dir-tbody td:nth-child(3) { display: none; } /* hide Unitário */
 
     /* Mobile: larger touch targets */
     .pdv-btn-lancar { padding: 12px; font-size: 0.9rem; }
