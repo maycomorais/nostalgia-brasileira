@@ -260,32 +260,42 @@ let MENU = {
 // 3. INICIALIZAÇÃO
 // ==========================================
 document.addEventListener('DOMContentLoaded', async () => {
-  // 1. Carrega dados salvos (Nome, Tel, Último Pedido)
-  carregarDadosLocal();
-
-  // 2. Renderiza o Menu vindo do Banco de Dados
-  await renderMenu();
-
-  // 3. Verifica Horário de Funcionamento e Banner
-  await verificarHorario();
-  
-  // 4. Restaura tracking se houver pedido ativo
-  restaurarTrackingSeExistir();
-
-  // Restaura timer se página foi recarregada durante entrega
-  restaurarTimerSeNecessario();
-  
-  // 5. Carrega extras globais (adicionais que aparecem em todos os produtos)
-  await carregarExtrasGlobais();
-
-  // Restaura backup do carrinho APÓS o menu estar pronto (fix #13)
-  restaurarCarrinhoBackup();
-
   const overlay = document.getElementById('loading-overlay');
+  const _hideOverlay = () => {
     if (overlay) {
       overlay.style.opacity = '0';
       setTimeout(() => { overlay.style.display = 'none'; }, 300);
     }
+  };
+
+  try {
+    // 1. Carrega dados salvos (Nome, Tel, Último Pedido)
+    carregarDadosLocal();
+
+    // 2. Renderiza o Menu vindo do Banco de Dados
+    await renderMenu();
+
+    // 3. Verifica Horário de Funcionamento e Banner
+    await verificarHorario();
+
+    // 4. Restaura tracking se houver pedido ativo
+    restaurarTrackingSeExistir();
+
+    // Restaura timer se página foi recarregada durante entrega
+    restaurarTimerSeNecessario();
+
+    // 5. Carrega extras globais (adicionais que aparecem em todos os produtos)
+    await carregarExtrasGlobais();
+
+    // Restaura backup do carrinho APÓS o menu estar pronto (fix #13)
+    restaurarCarrinhoBackup();
+
+  } catch (err) {
+    console.error('Erro na inicialização do app:', err);
+  } finally {
+    // Garante que o overlay some SEMPRE, mesmo se algo falhar
+    _hideOverlay();
+  }
 });
 
 // Carrega os extras globais da tabela configuracoes
@@ -432,14 +442,36 @@ async function verificarHorario() {
   }
 
   // Atualiza Banner Promocional — Fix #48: atribui onclick nos imgs, não no container
-  if (data.banner_imagem && data.banner_produto_id) {
-    const img1 = document.getElementById('banner-img-1');
+  // Fix: IDs corrigidos para corresponder ao index.html (banner1-img / banner2-img)
+  if (data.banner_imagem) {
+    const img1 = document.getElementById('banner1-img');
     if (img1) {
       img1.src = data.banner_imagem;
-      img1.onclick = function () { clicarBanner(data.banner_produto_id); };
+      img1.style.display = 'block';
+      if (data.banner_produto_id) {
+        img1.onclick = function () { clicarBanner(data.banner_produto_id); };
+        img1.style.cursor = 'pointer';
+      } else {
+        img1.onclick = null;
+        img1.style.cursor = 'default';
+      }
     }
   }
-  // banner-img-2 mantém clique padrão desabilitado até ser configurado no admin
+  if (data.banner_imagem_2) {
+    const img2 = document.getElementById('banner2-img');
+    if (img2) {
+      img2.src = data.banner_imagem_2;
+      img2.style.display = 'block';
+      if (data.banner_produto_id_2) {
+        img2.onclick = function () { clicarBanner(data.banner_produto_id_2); };
+        img2.style.cursor = 'pointer';
+      } else {
+        img2.onclick = null;
+        img2.style.cursor = 'default';
+      }
+    }
+  }
+  // banner2-img permanece oculto se banner_imagem_2 não estiver configurado no admin
   
   // Aplica personalização visual se existir
   if (data.nome_loja) {
@@ -516,20 +548,29 @@ async function renderMenu() {
   content.innerHTML = '';
 
   // Busca Categorias, Subcategorias e Produtos ativos
-  const { data: categsDb } = await supa.from('categorias').select('*').eq('ativo', true).order('ordem');
+  const { data: categsDb, error: _catError } = await supa.from('categorias').select('*').order('ordem');
+  if (_catError) console.warn('Erro ao carregar categorias:', _catError.message);
   let subcatsDb = [];
   try {
     const { data: _subs } = await supa.from('subcategorias').select('*').order('categoria_slug,ordem');
     subcatsDb = _subs || [];
   } catch (_) { subcatsDb = []; }
-  const { data: produtos } = await supa.from('produtos').select('*')
+  // Fix: somente_balcao filter moved to client-side to avoid crash if column is missing
+  const { data: _produtosRaw, error: _prodError } = await supa.from('produtos').select('*')
       .eq('ativo', true)
-      .eq('pausado', false)
-      .or('somente_balcao.is.null,somente_balcao.eq.false');
+      .eq('pausado', false);
+  if (_prodError) console.warn('Erro ao carregar produtos:', _prodError.message);
+  const produtos = _produtosRaw
+    ? _produtosRaw.filter(p => !p.somente_balcao)
+    : null;
 
-  if (!produtos || !categsDb) {
-    console.error('Erro ao carregar menu do banco');
-    
+  // Usa arrays vazios como fallback — não abandona o render se uma query falhar
+  const _categs = categsDb || [];
+  const _prods  = produtos  || [];
+  if (_categs.length === 0 && _prods.length === 0) {
+    console.error('Erro ao carregar menu do banco. produtos:', !!produtos, 'categsDb:', !!categsDb);
+    const content2 = document.getElementById('menu-content');
+    if (content2) content2.innerHTML = '<p style="text-align:center;padding:40px;color:#94a3b8">⚠️ Erro ao carregar o cardápio. Tente recarregar a página.</p>';
     return;
   }
 
@@ -547,7 +588,7 @@ async function renderMenu() {
   const prodPorSubcat = {};
   const prodSemSubcat = {};
 
-  produtos.forEach((p) => {
+  _prods.forEach((p) => {
     const cat = p.categoria_slug;
     const sub = p.subcategoria_slug;
     const item = {
@@ -625,7 +666,7 @@ async function renderMenu() {
   }
 
   // Constrói o HTML por categoria
-  categsDb.forEach((cat) => {
+  _categs.forEach((cat) => {
     if (!categoriaVisivel(cat)) return;
     const key = cat.slug;
     const todosOsProdutos = MENU[key];
