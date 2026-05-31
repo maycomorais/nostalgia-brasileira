@@ -3912,7 +3912,7 @@ hr.modal-divisor {
 .sidebar.collapsed .pdv-badge-mesas { display: inline !important; }
 
 body.sidebar-collapsed .main-content {
-  margin-left: 60px !important;
+  /* margin-left removed: body is display:flex, sidebar width handles spacing automatically */
 }
 
 /* ══════════════════════════════════════════════════════
@@ -4082,4 +4082,145 @@ body.sidebar-collapsed .main-content {
   #crm-lista-clientes {
     font-size: 0.78rem;
   }
+}
+
+/* ============================================================
+   COMBO FECHADO — Estilos
+   ============================================================ */
+/* ── Linha de sabor no builder admin ── */
+.cf-sabor-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.cf-sabor-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 7px;
+  font-size: 0.88rem;
+  outline: none;
+  transition: border 0.2s;
+}
+.cf-sabor-row input[type="text"]:focus {
+  border-color: #d97706;
+}
+.cf-sabor-row .cf-remove-sabor {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: #dc2626;
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 5px;
+  line-height: 1;
+  transition: background 0.15s;
+}
+.cf-sabor-row .cf-remove-sabor:hover {
+  background: #fee2e2;
+}
+/* ── Stepper (usado no FRONT do cliente — pedido) ── */
+.cf-stepper {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.cf-stepper button {
+  width: 34px;
+  height: 34px;
+  background: #f8fafc;
+  border: none;
+  font-size: 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+  color: #374151;
+  transition: background 0.15s;
+  line-height: 1;
+}
+.cf-stepper button:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+.cf-stepper button:disabled {
+  color: #cbd5e1;
+  cursor: not-allowed;
+  background: #f8fafc;
+}
+.cf-stepper .cf-qty {
+  min-width: 36px;
+  text-align: center;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1e293b;
+  padding: 0 4px;
+  background: #fff;
+  border-left: 1px solid #e5e7eb;
+  border-right: 1px solid #e5e7eb;
+  line-height: 34px;
+}
+/* ── Item de sabor no frontend do cliente ── */
+.cf-item-sabor {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.cf-item-sabor:last-child {
+  border-bottom: none;
+}
+.cf-item-sabor .cf-nome-sabor {
+  flex: 1;
+  font-size: 0.95rem;
+  color: #1e293b;
+  font-weight: 500;
+}
+/* ── Contador global ── */
+#combo-contador {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+  text-align: center;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  margin: 12px 0;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+#combo-contador.completo {
+  background: #f0fdf4;
+  border-color: #86efac;
+  color: #166534;
+}
+/* ── Botão Adicionar ao Carrinho do Combo Fechado ── */
+#btn-combo-adicionar {
+  width: 100%;
+  padding: 13px;
+  background: #d97706;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  margin-top: 4px;
+}
+#btn-combo-adicionar:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+#btn-combo-adicionar:not(:disabled):hover {
+  opacity: 0.88;
 }

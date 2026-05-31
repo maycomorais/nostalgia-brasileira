@@ -3264,6 +3264,19 @@ async function salvarProduto() {
       configFinal = { __tipo: "combo", descricao_livre, itens_combo };
     }
 
+    if (tipo === "combo_fechado") {
+      const cfg = cfLerConfigBuilder();
+      if (!cfg.limite_total || cfg.limite_total < 1) {
+        alert("⚠️ Informe o limite total de itens do combo.");
+        return;
+      }
+      if (cfg.sabores.length === 0) {
+        alert("⚠️ Adicione ao menos 1 sabor ao Combo Fechado.");
+        return;
+      }
+      configFinal = cfg;
+    }
+
     // Extras por produto
     const temExtras = document.getElementById("prod-tem-extras").checked;
     if (temExtras) {
@@ -3438,6 +3451,10 @@ async function abrirModalProduto(produto = null, tipoInicial = null) {
   // CORREÇÃO: Limpa o file input para não reutilizar imagem anterior
   const fileInputReset = document.getElementById("prod-img-file");
   if (fileInputReset) fileInputReset.value = "";
+  const cfLista = document.getElementById("cf-sabores-lista");
+  if (cfLista) cfLista.innerHTML = "";
+  const cfLimite = document.getElementById("cf-limite");
+  if (cfLimite) cfLimite.value = "";
 
   let tipo = "padrao";
 
@@ -3554,6 +3571,9 @@ async function abrirModalProduto(produto = null, tipoInicial = null) {
         // os checkboxes de produtos são carregados async pelo _carregarComboSelect
         window._comboItensPresel = cfg.itens_combo || [];
       }
+      if (tipo === "combo_fechado") {
+        cfCarregarNoBuilder(cfg);
+      }
       // Variações de sabor
       if (tipo === "variacoes" && cfg.variacoes) {
         document.getElementById("variacoes-lista").innerHTML = "";
@@ -3626,6 +3646,7 @@ const BUILDER_MAP = {
   suco: "builder-suco",
   variacoes: "builder-variacoes",
   kg: "builder-kg",
+  combo_fechado: "builder-combo-fechado",
 };
 const BUILDER_HINTS = {
   shake: "🥤 Defina tamanhos (P/M/G) e sabores disponíveis.",
@@ -3645,6 +3666,7 @@ const _TIPO_BADGE_LABELS = {
   combo: "⭐ Combo",
   variacoes: "🎨 Variações",
   kg: "⚖️ Venda por Kg",
+  combo_fechado: "📦 Combo Fechado",
 };
 
 function selecionarTipoBuilder(tipo) {
@@ -4210,6 +4232,73 @@ async function _carregarComboSelect() {
     </label>`,
     )
     .join("");
+}
+
+function cfAdicionarSabor(nome = "") {
+  const lista = document.getElementById("cf-sabores-lista");
+  if (!lista) return;
+ 
+  const id = "cf-s-" + Date.now() + Math.random().toString(36).slice(2, 6);
+  const row = document.createElement("div");
+  row.className = "cf-sabor-row";
+  row.dataset.cfId = id;
+  row.innerHTML = `
+    <input type="text" placeholder="Ex: Frango, Queijo, Carne…"
+           value="${nome.replace(/"/g, "&quot;")}"
+           oninput="cfAtualizarPreview()"
+           style="flex:1;padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:7px;font-size:0.88rem;outline:none">
+    <button type="button" class="cf-remove-sabor" title="Remover sabor"
+            onclick="cfRemoverSabor('${id}')">×</button>
+  `;
+  lista.appendChild(row);
+  row.querySelector("input").focus();
+  cfAtualizarPreview();
+}
+ 
+/** Remove uma linha de sabor */
+function cfRemoverSabor(id) {
+  const el = document.querySelector(`[data-cf-id="${id}"]`);
+  if (el) el.remove();
+  cfAtualizarPreview();
+}
+ 
+/** Lê o estado atual do builder e atualiza o preview JSON */
+function cfAtualizarPreview() {
+  const preview = document.getElementById("cf-json-preview");
+  if (!preview) return;
+  const cfg = cfLerConfigBuilder();
+  preview.textContent = JSON.stringify(cfg, null, 2);
+}
+ 
+/** Lê o formulário do builder e retorna o objeto de config */
+function cfLerConfigBuilder() {
+  const limite = parseInt(document.getElementById("cf-limite")?.value) || 0;
+  const sabores = [];
+ 
+  document.querySelectorAll("#cf-sabores-lista .cf-sabor-row").forEach((row) => {
+    const nome = row.querySelector("input")?.value?.trim();
+    if (nome) sabores.push({ id: row.dataset.cfId, nome });
+  });
+ 
+  return {
+    __tipo: "combo_fechado",
+    limite_total: limite,
+    sabores,
+  };
+}
+ 
+/** Popula o builder com uma config existente (modo edição) */
+function cfCarregarNoBuilder(cfg) {
+  if (!cfg || cfg.__tipo !== "combo_fechado") return;
+ 
+  const limiteEl = document.getElementById("cf-limite");
+  if (limiteEl) limiteEl.value = cfg.limite_total || "";
+ 
+  const lista = document.getElementById("cf-sabores-lista");
+  if (lista) lista.innerHTML = "";
+ 
+  (cfg.sabores || []).forEach((s) => cfAdicionarSabor(s.nome));
+  cfAtualizarPreview();
 }
 
 // ─── DUPLICAR PRODUTO ────────────────────────────────────────────
@@ -8519,8 +8608,44 @@ function _mostrarUpsellExtrasPDV(produto, extras) {
   }, 10000);
 }
 
+// ── TROCO / VUELTA (Efetivo) ───────────────────────────────────────────
+function pdvCalcTroco() {
+  const totalEl = document.getElementById("balcao-total");
+  const recebidoEl = document.getElementById("pdv-valor-recebido");
+  const trocoRow = document.getElementById("pdv-troco-row");
+  const trocoVal = document.getElementById("pdv-troco-val");
+  if (!totalEl || !recebidoEl || !trocoRow || !trocoVal) return;
+
+  const total = parseInt(totalEl.innerText.replace(/\D/g, "") || "0") || 0;
+  const recebido = parseInt(recebidoEl.value || "0") || 0;
+
+  if (recebido > 0 && total > 0) {
+    const troco = recebido - total;
+    trocoRow.style.display = "flex";
+    trocoVal.textContent = Math.max(0, troco).toLocaleString("es-PY");
+    trocoRow.style.background = troco >= 0 ? "#f0fdf4" : "#fff1f2";
+    trocoRow.style.borderColor = troco >= 0 ? "#86efac" : "#fca5a5";
+    trocoVal.style.color = troco >= 0 ? "#15803d" : "#dc2626";
+    trocoVal.textContent = (troco >= 0 ? "" : "⚠️ Falta Gs ") + Math.abs(troco).toLocaleString("es-PY");
+    trocoRow.querySelector("span:first-child").textContent = troco >= 0 ? "💵 Troco / Vuelta" : "💸 Valor insuficiente";
+  } else {
+    trocoRow.style.display = "none";
+  }
+}
+
 function removerItemPDV(idx) {
   carrinhoPDV.splice(idx, 1);
+  atualizarCarrinhoPDV();
+}
+
+// Edição inline de observação de item do carrinho PDV
+function pdvEditarObs(idx) {
+  const item = carrinhoPDV[idx];
+  if (!item) return;
+  // Modal leve inline — usa prompt nativo para não precisar de HTML extra
+  const nova = prompt(`Observação para "${item.nome}":`, item.obs || "");
+  if (nova === null) return; // cancelou
+  carrinhoPDV[idx].obs = nova.trim();
   atualizarCarrinhoPDV();
 }
 
@@ -8585,6 +8710,9 @@ function atualizarCarrinhoPDV() {
     carrinhoPDV.forEach((item, idx) => {
       total += item.preco * item.qtd;
       const row = document.createElement("tr");
+      const obsHtml = item.obs
+        ? `<div style="font-size:0.68rem;color:#6b7280;font-style:italic;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px">📝 ${item.obs}</div>`
+        : '';
       if (item._isKg) {
         const g = item.peso_gramas || 0;
         const pesofmt =
@@ -8595,16 +8723,20 @@ function atualizarCarrinhoPDV() {
                 .replace(".", ",") + "kg"
             : g + "g";
         row.innerHTML = `
-          <td class="pdv-item-nome"><span style="color:#0891b2;font-size:0.72rem">⚖️ ${pesofmt}</span> ${item.nome}</td>
+          <td class="pdv-item-nome"><span style="color:#0891b2;font-size:0.72rem">⚖️ ${pesofmt}</span> ${item.nome}${obsHtml}</td>
           <td class="tc" style="color:#0891b2;font-size:0.7rem">kg</td>
           <td class="tr" style="font-size:0.7rem;color:#666">—</td>
-          <td class="tr">Gs ${item.preco.toLocaleString("es-PY")} <button class="pdv-item-remove" onclick="removerItemPDV(${idx})">✕</button></td>`;
+          <td class="tr" style="white-space:nowrap">Gs ${item.preco.toLocaleString("es-PY")}
+            <button class="pdv-item-edit" onclick="pdvEditarObs(${idx})" title="Observação">✏️</button>
+            <button class="pdv-item-remove" onclick="removerItemPDV(${idx})" title="Remover">✕</button></td>`;
       } else {
         row.innerHTML = `
-          <td class="pdv-item-nome">${item.nome}</td>
+          <td class="pdv-item-nome">${item.nome}${obsHtml}</td>
           <td class="tc pdv-item-qtd">${item.qtd}×</td>
           <td class="tr" style="font-size:0.7rem;color:#666">Gs ${item.preco.toLocaleString("es-PY")}</td>
-          <td class="tr">Gs ${(item.preco * item.qtd).toLocaleString("es-PY")} <button class="pdv-item-remove" onclick="removerItemPDV(${idx})">✕</button></td>`;
+          <td class="tr" style="white-space:nowrap">Gs ${(item.preco * item.qtd).toLocaleString("es-PY")}
+            <button class="pdv-item-edit" onclick="pdvEditarObs(${idx})" title="Observação">✏️</button>
+            <button class="pdv-item-remove" onclick="removerItemPDV(${idx})" title="Remover">✕</button></td>`;
       }
       lista.appendChild(row);
     });
@@ -8674,6 +8806,17 @@ function atualizarInfoPagPDV(total) {
   infoBox.style.display = "none";
   if (boxMultiPDV) boxMultiPDV.style.display = "none";
   if (selectPag) selectPag.style.display = "";
+
+  // Mostrar/ocultar box Efetivo (valor recebido + troco)
+  const efetivoBox = document.getElementById("pdv-efetivo-box");
+  if (efetivoBox) {
+    if (pag === "Efetivo") {
+      efetivoBox.style.display = "block";
+      pdvCalcTroco();
+    } else {
+      efetivoBox.style.display = "none";
+    }
+  }
 
   if (pag === "CartaoBR" && total > 0) {
     infoBox.style.display = "block";
@@ -8920,6 +9063,7 @@ async function salvarPedidoBalcao() {
     nome: i.nome,
     preco: i.preco,
     qtd: i.qtd,
+    variacao: i.variacao || "",
     montagem: i.montagem || [],
     obs: i.obs || "",
     categoria_slug: i.categoria_slug || "",
