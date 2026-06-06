@@ -26,12 +26,22 @@ function _mensEncodeObs(tipo, nota) {
   return JSON.stringify({ t: tipo, n: nota || '' });
 }
 
-// Armazenagem: unidades = valor inteiro; kg = valor * 10 (precisão 0,1 kg)
-function _mensKgToInt(kg)   { return Math.round(parseFloat(kg) * 10); }
-function _mensIntToKg(n)    { return (n / 10).toFixed(1); }
+// Armazenagem: unidades = valor inteiro; kg = valor * 1000 (precisão 1g)
+// NOTA: planos antigos gravados com *10 são migrados automaticamente ao serem editados.
+function _mensKgToInt(kg)   { return Math.round(parseFloat(kg) * 1000); }
+function _mensIntToKg(n)    { return n / 1000; }  // retorna número puro (kg com decimais)
+
+// Formata peso para exibição: usa gramas se < 1000g, kg com precisão total caso contrário
+function _mensFmtPeso(grams) {
+  if (grams < 1000) return grams + 'g';
+  // Remove zeros decimais desnecessários
+  const kg = grams / 1000;
+  const str = kg % 1 === 0 ? kg.toFixed(0) : kg.toString().replace('.', ',');
+  return str + ' kg';
+}
 
 function _mensFmtQtd(valorInt, tipo) {
-  if (tipo === 'kg') return _mensIntToKg(valorInt).replace('.', ',') + ' kg';
+  if (tipo === 'kg') return _mensFmtPeso(valorInt);
   return valorInt + (valorInt === 1 ? ' unid.' : ' unids.');
 }
 
@@ -239,7 +249,7 @@ function mensToggleTipoPlano() {
   const input = document.getElementById('mens-plano-qtd');
   if (tipo === 'kg') {
     if (label) label.textContent = 'Peso total contratado (kg) *';
-    if (input) { input.placeholder = 'Ex: 5.0'; input.step = '0.1'; input.min = '0.1'; }
+    if (input) { input.placeholder = 'Ex: 5.000 (= 5kg) ou 0.500 (= 500g)'; input.step = '0.001'; input.min = '0.001'; }
   } else {
     if (label) label.textContent = 'Qtd Total de Itens *';
     if (input) { input.placeholder = 'Ex: 22'; input.step = '1'; input.min = '1'; }
@@ -268,7 +278,9 @@ function mensAbrirModalPlano(id = null) {
   const qtdInput = document.getElementById('mens-plano-qtd');
   if (qtdInput) {
     if (tipo === 'kg') {
-      qtdInput.value = p ? _mensIntToKg(p.quantidade_total) : '';
+      // Formata sem zeros desnecessários: 5000 → "5", 500 → "0.5", 461 → "0.461"
+      const kgVal = p ? _mensIntToKg(p.quantidade_total) : 0;
+      qtdInput.value = p ? (kgVal % 1 === 0 ? kgVal.toFixed(0) : kgVal.toString()) : '';
     } else {
       qtdInput.value = p?.quantidade_total || '';
     }
@@ -401,11 +413,13 @@ function mensAbrirEntrega(planoId) {
   const qtdInput = document.getElementById('mens-ent-qtd');
   const qtdLabel = document.getElementById('mens-ent-qtd-label');
   if (isKg) {
-    qtdInput.step  = '0.1';
-    qtdInput.min   = '0.1';
-    qtdInput.value = '0.5';
-    qtdInput.max   = _mensIntToKg(p.quantidade_restante);
-    if (qtdLabel) qtdLabel.textContent = 'Peso entregue (kg) *';
+    // Entrada em kg com precisão de 1g (0.001 kg = 1g)
+    qtdInput.step  = '0.001';
+    qtdInput.min   = '0.001';
+    qtdInput.value = '';
+    qtdInput.placeholder = 'Ex: 0.461 (= 461g)';
+    qtdInput.max   = (_mensIntToKg(p.quantidade_restante)).toString();
+    if (qtdLabel) qtdLabel.textContent = 'Peso entregue (kg) — ex: 0.461 para 461g *';
   } else {
     qtdInput.step  = '1';
     qtdInput.min   = '1';
@@ -414,15 +428,20 @@ function mensAbrirEntrega(planoId) {
     if (qtdLabel) qtdLabel.textContent = t('mens.qtd_entregue', 'Quantidade entregue *');
   }
 
-  // Valor unitário
+  // Valor unitário — para kg, calcula Gs/kg usando quantidade em kg reais
   const elValor = document.getElementById('mens-ent-valor-unit');
   if (elValor) {
-    if (p.quantidade_total > 0) {
-      const valorUnit = p.valor_plano / p.quantidade_total;
+    const _vp = parseFloat(p.valor_plano || 0);
+    const _qt = parseFloat(p.quantidade_total || 0);
+    if (_qt > 0) {
       if (isKg) {
-        elValor.textContent = `Gs ${Math.round(valorUnit * 10).toLocaleString('es-PY')} /kg`;
+        // quantidade_total está em gramas (int*1000), converte para kg reais
+        const kgTotal  = _qt / 1000;
+        const gsPerKg  = _vp / kgTotal;
+        const gsPerGrm = _vp / _qt;   // Gs por grama (para mostrar ambos)
+        elValor.textContent = `Gs ${Math.round(gsPerKg).toLocaleString('es-PY')} /kg  (Gs ${gsPerGrm.toFixed(2).replace('.',',')} /g)`;
       } else {
-        elValor.textContent = `Gs ${Math.round(valorUnit).toLocaleString('es-PY')} /un`;
+        elValor.textContent = `Gs ${Math.round(_vp / _qt).toLocaleString('es-PY')} /un`;
       }
     } else {
       elValor.textContent = '';
@@ -474,11 +493,15 @@ async function mensSalvarEntrega() {
 
   const novoRestante = p.quantidade_restante - qtd;
 
-  // Desconta o valor proporcional ao que foi consumido — parseFloat para campos numeric do Supabase
-  const _svPlano    = parseFloat(p.valor_plano || 0)    || 0;
-  const _svQtdTot   = parseFloat(p.quantidade_total || 0) || 0;
-  const valorPorUnidade = _svQtdTot > 0 ? _svPlano / _svQtdTot : 0;
-  const novoValorRestante = Math.round(valorPorUnidade * novoRestante);
+  // Desconta o valor proporcional ao que foi consumido.
+  // Para kg: quantidade_total e qtd estão em GRAMAS (int*1000),
+  // a proporção é direta: (qtd_gramas / total_gramas) * valor_plano
+  const _svPlano  = parseFloat(p.valor_plano || 0)     || 0;
+  const _svQtdTot = parseFloat(p.quantidade_total || 0) || 0;
+  const _svValAtu = parseFloat(p.valor_restante ?? _svPlano);
+  // Valor da parcela consumida nesta entrega (proporcional à parcela do total)
+  const valorConsumido    = _svQtdTot > 0 ? Math.round((_svPlano / _svQtdTot) * qtd) : 0;
+  const novoValorRestante = Math.max(0, Math.round(_svValAtu - valorConsumido));
 
   const { error: errUp } = await supa
     .from('planos_mensalistas')
@@ -524,16 +547,15 @@ function mensImprimirComprovante(plano, qtd, obs, entregaId, dataEntrega, saldoA
   const restFmt  = _mensFmtQtd(saldoApos !== undefined ? saldoApos : plano.quantidade_restante, tipo);
   const totFmt   = _mensFmtQtd(plano.quantidade_total, tipo);
   const antFmt   = _mensFmtQtd(saldoAnt, tipo);
-  // Valor restante em dinheiro (pós-entrega) — parseFloat para garantir numeric do Supabase
-  const saldoRestanteInt  = saldoApos !== undefined ? saldoApos : plano.quantidade_restante;
-  const _ivPlano          = parseFloat(plano.valor_plano || 0)  || 0;
-  const _ivQtdTot         = parseFloat(plano.quantidade_total || 0) || 0;
-  const _ivValorPassado   = valorRestante != null ? parseFloat(valorRestante) : -1;
-  const valorRestanteGs   = (_ivValorPassado >= 0)
-    ? Math.round(_ivValorPassado)
-    : (_ivQtdTot > 0 ? Math.round((_ivPlano / _ivQtdTot) * saldoRestanteInt) : 0);
-  const valorRestanteFmt  = valorRestanteGs.toLocaleString('es-PY');
-  const valorPlanoBefore  = Math.round(_ivPlano);
+  // Valor restante em dinheiro (pós-entrega)
+  const saldoRestanteInt = saldoApos !== undefined ? saldoApos : plano.quantidade_restante;
+  const valorRestanteGs = valorRestante != null
+    ? Math.round(valorRestante)
+    : (plano.quantidade_total > 0
+        ? Math.round((plano.valor_plano / plano.quantidade_total) * saldoRestanteInt)
+        : 0);
+  const valorRestanteFmt = valorRestanteGs.toLocaleString('es-PY');
+  const valorPlanoBefore = Math.round(plano.valor_plano || 0);
 
   const html = `<!DOCTYPE html>
 <html lang="es">
@@ -683,11 +705,11 @@ async function mensReimprimirEntrega(entregaId, planoId) {
 
   const qtdPosteriores = (posteriores || []).reduce((s, x) => s + (x.quantidade || 0), 0);
   const saldoApos = p.quantidade_restante + qtdPosteriores;
-  // Recalcula valor restante naquele momento histórico — parseFloat para campos numeric do Supabase
+  // Recalcula valor restante naquele momento histórico (proporcional ao saldo)
   const _rhPlano  = parseFloat(p.valor_plano || 0)     || 0;
   const _rhQtdTot = parseFloat(p.quantidade_total || 0) || 0;
   const valorRestanteHistorico = _rhQtdTot > 0
-    ? Math.round((_rhPlano / _rhQtdTot) * saldoApos)
+    ? Math.max(0, Math.round((_rhPlano / _rhQtdTot) * saldoApos))
     : 0;
 
   mensImprimirComprovante(p, e.quantidade, e.observacoes, e.id, e.created_at, saldoApos, undefined, valorRestanteHistorico);
@@ -720,14 +742,14 @@ function mensEnviarWhatsAppAviso(planoId) {
     : `\nVencimento do plano: ${dataFim}`) : '';
   const restaurante = _mens_nomeRestaurante || 'RESTAURANTE';
 
-  // Valor restante do plano — parseFloat garante que campos numeric do Supabase (retornados como string) sejam tratados como número
-  const _vrPlano    = parseFloat(p.valor_plano || 0)       || 0;
-  const _vrRestante = parseFloat(p.valor_restante ?? -1)   ;
-  const _vrQtdTot   = parseFloat(p.quantidade_total || 0)  || 0;
+  // Valor restante do plano — parseFloat para campos numeric do Supabase
+  const _vrPlano    = parseFloat(p.valor_plano || 0)     || 0;
+  const _vrRestante = parseFloat(p.valor_restante ?? -1);
+  const _vrQtdTot   = parseFloat(p.quantidade_total || 0) || 0;
   const _vrQtdRest  = parseFloat(p.quantidade_restante || 0);
   const valorRestGs = (_vrRestante >= 0)
     ? Math.round(_vrRestante)
-    : (_vrQtdTot > 0 ? Math.round((_vrPlano / _vrQtdTot) * _vrQtdRest) : 0);
+    : (_vrQtdTot > 0 ? Math.max(0, Math.round((_vrPlano / _vrQtdTot) * _vrQtdRest)) : 0);
   const valorRestFmt = valorRestGs.toLocaleString('es-PY');
 
   const msgs = {
