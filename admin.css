@@ -811,7 +811,7 @@ select.form-control, select.input-modern {
 }
 .pdv-dir-input:focus { border-color: var(--primary); }
 
-/* Item table */
+/* Item table — lista de itens com flex:1 para ocupar espaço disponível */
 .pdv-dir-lista-wrap { flex: 1; overflow-y: auto; scrollbar-width: thin; min-height: 60px; }
 .pdv-dir-table { width: 100%; border-collapse: collapse; font-size: 0.76rem; }
 .pdv-dir-table thead th {
@@ -819,6 +819,14 @@ select.form-control, select.input-modern {
     font-weight: 700; color: #555; font-size: 0.69rem;
     background: #f5f5f5; border-bottom: 2px solid #e0e0e0;
     position: sticky; top: 0; z-index: 1;
+}
+
+/* Totais + pagamento — scroll próprio, nunca empurra o footer */
+.pdv-dir-bottom-scroll {
+    overflow-y: auto;
+    scrollbar-width: thin;
+    flex-shrink: 0;
+    max-height: 52vh;
 }
 .pdv-dir-table th.tc { text-align: center; }
 .pdv-dir-table th.tr { text-align: right; }
@@ -947,7 +955,10 @@ select.form-control, select.input-modern {
     /* Mobile: right column full width */
     .pdv-col-dir {
         height: calc(100vh - 200px);
-        overflow-y: auto;
+        overflow-y: hidden;
+    }
+    .pdv-dir-bottom-scroll {
+        max-height: 38vh;
     }
     .pdv-tipo-tab { font-size: 0.62rem; padding: 8px 2px; }
 

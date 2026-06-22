@@ -282,9 +282,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       const optDono = document.getElementById("opt-cargo-dono");
       if (optDono) optDono.style.display = "";
     }
-    // Financeiro visível para todos (funcionário vê apenas o próprio caixa)
-    const menuFin = document.getElementById("menu-financeiro");
-    if (menuFin) menuFin.style.display = "flex";
+    // A visibilidade do financeiro (e todas as abas) é controlada
+    // inteiramente por _aplicarVisibilidadeAbas() via permissoes_cargo
+    // ou features_ativas.tabs. O mini-painel de caixa no PDV
+    // permite que funcionários abram o caixa sem acessar a aba financeiro.
     if (
       perfilUsuario === "dono" ||
       perfilUsuario === "gerente" ||
@@ -526,13 +527,11 @@ function showTab(tabId, event) {
   }
   if (realTabId === "inventario") {
     if (!perfilUsuario) return; // auth not loaded yet — wait
-    if (
-      perfilUsuario === "dono" ||
-      perfilUsuario === "gerente" ||
-      perfilUsuario === "adminMaster"
-    )
+    // Permissão via permissoes_cargo ou fallback cargo
+    const _podeInv = _feat("tabs", "inventario");
+    if (_podeInv) {
       carregarInventario();
-    else {
+    } else {
       alert("Acesso restrito.");
       showTab("pedidos", null);
     }
@@ -628,9 +627,31 @@ function _aplicarFormasPagamentoPDV(features) {
 
 function _feat(categoria, chave) {
   if (!FEATURES_ATIVAS) return true; // sem config = tudo ativo
+  // Permissões granulares por cargo (permissoes_cargo) têm prioridade
+  // sobre o controle global (tabs/funcionalidades)
+  if (categoria === "tabs" && perfilUsuario) {
+    const pCargo = FEATURES_ATIVAS?.permissoes_cargo?.[perfilUsuario];
+    if (pCargo && Array.isArray(pCargo.tabs)) {
+      return pCargo.tabs.includes(chave);
+    }
+  }
   const cat = FEATURES_ATIVAS[categoria];
   if (!cat) return true;
   return cat[chave] !== false;
+}
+
+/**
+ * Retorna true se o usuário logado pode cancelar pedidos diretamente
+ * (sem solicitar aprovação). Lê de features_ativas.permissoes_cargo
+ * se disponível, cai back para a lógica antiga (dono/adminMaster).
+ */
+function _podeCancelarDireto() {
+  const pCargo = FEATURES_ATIVAS?.permissoes_cargo?.[perfilUsuario];
+  if (pCargo && "pode_cancelar_direto" in pCargo) {
+    return pCargo.pode_cancelar_direto === true;
+  }
+  // fallback: lógica original
+  return ["dono", "adminMaster"].includes(perfilUsuario);
 }
 
 function _aplicarVisibilidadeAbas() {
@@ -652,9 +673,12 @@ function _aplicarVisibilidadeAbas() {
   };
   // adminMaster nunca sofre restrições — ele define as regras
   if (perfilUsuario === "adminMaster") return;
+
   Object.entries(mapa).forEach(([menuId, chave]) => {
     const el = document.getElementById(menuId);
-    if (el && !_feat("tabs", chave)) el.style.display = "none";
+    if (!el) return;
+    const visivel = _feat("tabs", chave);
+    el.style.display = visivel ? "flex" : "none";
   });
   _aplicarFuncionalidades();
 }
@@ -723,11 +747,30 @@ async function salvarFeatures() {
   document.querySelectorAll("[data-feat-pag]").forEach((el) => {
     pagamentos[el.dataset.featPag] = el.checked;
   });
+
+  // ── Permissões granulares por cargo ─────────────────────────────
+  const permissoes_cargo = {};
+  const CARGOS_PERM = ["dono", "gerente", "funcionario", "garcom"];
+  const ABAS_PERM = [
+    "pedidos","cozinha","pdv","financeiro","inventario","produtos",
+    "equipe","configuracoes","dashboard","estatisticas","ficha-tecnica",
+    "crm","mensalistas","turnos",
+  ];
+  CARGOS_PERM.forEach(cargo => {
+    const tabsPermitidas = ABAS_PERM.filter(aba => {
+      const el = document.querySelector(`[data-perm-tab="${aba}"][data-perm-cargo="${cargo}"]`);
+      return el ? el.checked : true; // default: permitido
+    });
+    const podeCancel = document.querySelector(`[data-perm-cancelar][data-perm-cargo="${cargo}"]`)?.checked ?? false;
+    permissoes_cargo[cargo] = { tabs: tabsPermitidas, pode_cancelar_direto: podeCancel };
+  });
+
   const features = {
     tabs,
     tipos_produto: tipos,
     funcionalidades: funcs,
     pagamentos,
+    permissoes_cargo,
   };
   const { error } = await supa
     .from("configuracoes")
@@ -837,12 +880,79 @@ async function renderPainelFeatures() {
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:7px">${grid}</div>
     </div>`;
 
+  // ── Permissões por cargo ────────────────────────────────────────────
+  const CARGOS_UI = [
+    { key: "dono",        label: "🔑 Dono",        cor: "#f59e0b" },
+    { key: "gerente",     label: "👔 Gerente",      cor: "#2980b9" },
+    { key: "funcionario", label: "👷 Funcionário",  cor: "#7f8c8d" },
+    { key: "garcom",      label: "🍽️ Garçom",      cor: "#27ae60" },
+  ];
+  const ABAS_UI = [
+    ["pedidos","📋 Pedidos"],["cozinha","👨‍🍳 Cozinha"],["pdv","🖥️ PDV"],
+    ["financeiro","💰 Financeiro"],["inventario","📦 Inventário"],["produtos","🍽️ Produtos"],
+    ["equipe","👥 Equipe"],["configuracoes","⚙️ Config"],["dashboard","📊 Dashboard"],
+    ["estatisticas","📈 Estatísticas"],["ficha-tecnica","📝 Ficha Técnica"],
+    ["crm","🤝 CRM"],["mensalistas","🗓️ Mensalistas"],["turnos","📺 Turnos"],
+  ];
+  const pCargos = f.permissoes_cargo || {};
+
+  const _chkPerm = (cargo, aba, label) => {
+    const perm = pCargos[cargo];
+    const isChecked = perm?.tabs ? perm.tabs.includes(aba) : true;
+    const cor = CARGOS_UI.find(c => c.key === cargo)?.cor || "#888";
+    return `<label style="display:flex;align-items:center;gap:5px;padding:5px 7px;
+        border-radius:7px;cursor:pointer;font-size:0.78rem;
+        background:${isChecked ? cor + "18" : "#f5f5f5"};
+        border:1.5px solid ${isChecked ? cor : "#ddd"};transition:all .15s">
+      <input type="checkbox" data-perm-tab="${aba}" data-perm-cargo="${cargo}"
+        ${isChecked ? "checked" : ""}
+        onchange="this.closest('label').style.background=this.checked?'${cor}18':'#f5f5f5';
+                  this.closest('label').style.borderColor=this.checked?'${cor}':'#ddd'"
+        style="width:14px;height:14px;accent-color:${cor};flex-shrink:0">
+      ${label}
+    </label>`;
+  };
+
+  const permSection = CARGOS_UI.map(({ key, label, cor }) => {
+    const perm = pCargos[key] || {};
+    const podeCancel = perm.pode_cancelar_direto === true;
+    const abasChk = ABAS_UI.map(([k, l]) => _chkPerm(key, k, l)).join("");
+    return `<div style="border:2px solid ${cor}44;border-radius:12px;padding:14px 16px;background:#fff">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <span style="font-weight:700;font-size:0.92rem;color:${cor}">${label}</span>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;
+            font-size:0.8rem;font-weight:600;color:#c0392b;
+            background:${podeCancel ? "#fdecea" : "#f5f5f5"};
+            border:1.5px solid ${podeCancel ? "#e74c3c" : "#ddd"};
+            border-radius:8px;padding:5px 10px;transition:all .15s">
+          <input type="checkbox" data-perm-cancelar data-perm-cargo="${key}"
+            ${podeCancel ? "checked" : ""}
+            onchange="this.closest('label').style.background=this.checked?'#fdecea':'#f5f5f5';
+                      this.closest('label').style.borderColor=this.checked?'#e74c3c':'#ddd'"
+            style="width:14px;height:14px;accent-color:#e74c3c;flex-shrink:0">
+          ❌ Pode cancelar diretamente
+        </label>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px">${abasChk}</div>
+    </div>`;
+  }).join("");
+
   const html = `
     <div style="display:grid;gap:14px">
-      ${_sec("📂 Abas visíveis", "Controla o menu lateral para todos os cargos abaixo de adminMaster", chkTabs)}
+      ${_sec("📂 Abas visíveis (global)", "Controla o menu para todos os cargos via regra global. As permissões por cargo abaixo têm prioridade.", chkTabs)}
       ${_sec("💳 Formas de Pagamento", "App do cliente <strong>e</strong> PDV balcão + filtro financeiro", chkPags)}
       ${_sec("🏷️ Tipos de Produto permitidos", "Quais tipos podem ser criados no cardápio", chkTipos)}
       ${_sec("⚙️ Funcionalidades", "Oculta recursos específicos da interface", chkFuncs)}
+      <div style="border:2px solid #e74c3c55;border-radius:14px;padding:16px 18px;background:#fffafa">
+        <h4 style="margin:0 0 4px;color:#c0392b;font-size:0.95rem;font-weight:800">
+          🔐 Permissões Granulares por Cargo
+        </h4>
+        <p style="font-size:0.78rem;color:#999;margin:0 0 14px">
+          Define quais abas cada cargo pode ver <strong>e</strong> se pode cancelar pedidos diretamente
+          (sem solicitar aprovação). Tem prioridade sobre a seção "Abas visíveis" acima.
+        </p>
+        <div style="display:grid;gap:12px">${permSection}</div>
+      </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="salvarFeatures()" style="flex:1;min-width:160px">
           <i class="fas fa-save"></i> Salvar Configurações
@@ -992,7 +1102,7 @@ async function carregarPedidos(silencioso = false) {
   // ───────────────────────────────────────────────────────────────────────────
 
   // Badge de cancelamento pendente para o dono / adminMaster
-  const _podeCancel = ["dono", "adminMaster"].includes(perfilUsuario);
+  const _podeCancel = _podeCancelarDireto();
   const badgeCancelPendente = _podeCancel
     ? `<span style="background:#e74c3c;color:white;font-size:0.7rem;padding:2px 7px;border-radius:10px;margin-left:6px;vertical-align:middle;">CANC. PENDENTE</span>`
     : "";
@@ -1681,7 +1791,7 @@ async function calcularFinanceiro() {
   let utcI = sessaoInicio;
   let utcF = sessaoFim;
   if (ehGestor && elInicio.value && elFim.value) {
-    const _tz = 4 * 60 * 60 * 1000; // UTC-4 PY
+    const _tz = 3 * 60 * 60 * 1000; // UTC-3 PY (horário de verão permanente desde 2024)
     utcI = new Date(new Date(elInicio.value + "T00:00:00").getTime() + _tz).toISOString();
     utcF = new Date(new Date(elFim.value   + "T23:59:59").getTime() + _tz).toISOString();
   } else if (!elInicio.value || !elFim.value) {
@@ -1867,14 +1977,18 @@ async function _verificarBloqueioCaixa(emailAtual) {
     .maybeSingle();
   if (!cfg?.sangria_limite) return;
 
+  // UTC-3 PY (horario de verao permanente desde 2024)
+  const _tz = 3 * 60 * 60 * 1000;
   const hoje = new Date();
   const dStr = hoje.toISOString().split("T")[0];
+  const dIni = new Date(new Date(dStr + "T00:00:00").getTime() + _tz).toISOString();
+  const dFim = new Date(new Date(dStr + "T23:59:59").getTime() + _tz).toISOString();
   const { data: movs } = await supa
     .from("movimentacoes_caixa")
     .select("tipo, valor")
     .eq("usuario_email", emailAtual)
-    .gte("created_at", dStr + " 00:00:00")
-    .lte("created_at", dStr + " 23:59:59");
+    .gte("created_at", dIni)
+    .lte("created_at", dFim);
 
   let efetivo = 0;
   (movs || []).forEach((m) => {
@@ -2377,7 +2491,11 @@ async function salvarMovimentacaoCaixa() {
       await _abrirSessaoCaixa(valor, desc);
       alert(`✅ Caixa aberto com fundo de Gs ${valor.toLocaleString("es-PY")}!`);
       fecharModal("modal-caixa");
-      calcularFinanceiro();
+      // Atualiza painel de caixa no PDV (caso o modal tenha sido aberto de lá)
+      if (typeof pdvCarregarPainelCaixa === "function") pdvCarregarPainelCaixa();
+      if (document.getElementById("financeiro")?.classList.contains("active")) {
+        calcularFinanceiro();
+      }
       return;
     } catch (e) {
       alert("Erro ao abrir caixa: " + e.message);
@@ -2467,6 +2585,8 @@ Sessão encerrada!`);
 
   // Limpa estado
   _sessaoCaixaAtiva = null;
+  // Atualiza mini-painel do PDV
+  if (typeof pdvCarregarPainelCaixa === "function") pdvCarregarPainelCaixa();
   ["card-faturamento","card-custo-moto","card-lucro","total-pix","total-transf",
    "total-cartao","total-efetivo","card-ticket-medio"].forEach((id) => {
     const el = document.getElementById(id);
@@ -2486,8 +2606,12 @@ async function _buscarDadosRelatorio() {
   const elI = document.getElementById("fin-inicio");
   const elF = document.getElementById("fin-fim");
   const hoje = new Date().toISOString().split("T")[0];
-  const ini = (elI?.value || hoje) + "T00:00:00";
-  const fim = (elF?.value || hoje) + "T23:59:59";
+  // UTC-3 PY (horario de verao permanente desde 2024)
+  const _tz = 3 * 60 * 60 * 1000;
+  const iniDate = elI?.value || hoje;
+  const fimDate = elF?.value || hoje;
+  const ini = new Date(new Date(iniDate + "T00:00:00").getTime() + _tz).toISOString();
+  const fim = new Date(new Date(fimDate + "T23:59:59").getTime() + _tz).toISOString();
   const { data } = await supa
     .from("pedidos")
     .select("*")
@@ -7396,6 +7520,90 @@ async function carregarPDV() {
   renderizarGridPDV();
   atualizarBarraMesasAtivas();
   pdvIniciarTabs();
+  // Carrega mini-painel de caixa no PDV (funciona mesmo com aba financeiro bloqueada)
+  await pdvCarregarPainelCaixa();
+}
+
+/**
+ * Mini-painel de caixa na aba PDV.
+ * Visível para todos os perfis (funcionario, gerente, dono, etc).
+ * Permite abrir o caixa sem precisar acessar a aba financeiro.
+ */
+async function pdvCarregarPainelCaixa() {
+  const container = document.getElementById("pdv-painel-caixa");
+  if (!container) return;
+
+  // Reutiliza _carregarSessaoCaixa se financeiro não foi aberto ainda
+  const ehGestor = ["dono", "gerente", "adminMaster"].includes(perfilUsuario);
+  const emailAtual = document.getElementById("user-email")?.innerText || "";
+
+  let q = supa
+    .from("sessoes_caixa")
+    .select("*")
+    .is("fechado_em", null)
+    .order("aberto_em", { ascending: false })
+    .limit(1);
+  if (!ehGestor) q = q.eq("usuario_email", emailAtual);
+
+  const { data } = await q;
+  const sessao = data?.[0] || null;
+
+  // Sincroniza com _sessaoCaixaAtiva para que salvarMovimentacaoCaixa funcione
+  _sessaoCaixaAtiva = sessao;
+
+  if (!sessao) {
+    container.innerHTML = `
+      <div style="background:#fff3cd;border:1.5px solid #f0a500;border-radius:12px;
+        padding:14px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="font-weight:700;color:#7a5100;font-size:0.92rem">⚠️ Caixa não aberto</div>
+          <div style="font-size:0.8rem;color:#9a6400;margin-top:2px">
+            Abra o caixa para as vendas serem contabilizadas nesta sessão.
+          </div>
+        </div>
+        <button onclick="abrirModalCaixa('abertura')"
+          style="background:#27ae60;color:#fff;border:none;border-radius:9px;
+            padding:10px 20px;font-weight:700;cursor:pointer;font-size:0.88rem;
+            white-space:nowrap;box-shadow:0 2px 8px rgba(39,174,96,.3)">
+          <i class="fas fa-door-open"></i> Abrir Caixa
+        </button>
+      </div>`;
+  } else {
+    const dAbr = new Date(sessao.aberto_em).toLocaleString("pt-BR", {
+      day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"
+    });
+    const podeFechar = ehGestor;
+    container.innerHTML = `
+      <div style="background:#eafaf1;border:1.5px solid #27ae60;border-radius:12px;
+        padding:12px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="font-weight:700;color:#1a6b3a;font-size:0.92rem">
+            🟢 Caixa aberto desde ${dAbr}
+          </div>
+          <div style="font-size:0.8rem;color:#2e7d52;margin-top:2px">
+            Operador: ${sessao.usuario_nome || sessao.usuario_email}
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button onclick="abrirModalCaixa('suprimento')"
+            style="background:#2980b9;color:#fff;border:none;border-radius:8px;
+              padding:8px 14px;font-weight:600;cursor:pointer;font-size:0.82rem">
+            <i class="fas fa-plus-circle"></i> Suprimento
+          </button>
+          <button onclick="abrirModalCaixa('sangria')"
+            style="background:#e67e22;color:#fff;border:none;border-radius:8px;
+              padding:8px 14px;font-weight:600;cursor:pointer;font-size:0.82rem">
+            <i class="fas fa-hand-holding-usd"></i> Sangria
+          </button>
+          ${podeFechar ? `
+          <button onclick="fecharCaixaResumo()"
+            style="background:#2c3e50;color:#fff;border:none;border-radius:8px;
+              padding:8px 14px;font-weight:600;cursor:pointer;font-size:0.82rem">
+            <i class="fas fa-calculator"></i> Fechar Dia
+          </button>` : ""}
+        </div>
+      </div>`;
+  }
 }
 
 let produtosCatsPDV = [];
@@ -9676,7 +9884,7 @@ async function salvarPedidoBalcao() {
 
   // ── Gaveta automática ─────────────────────────────────────────────────────
   // Abre apenas no PDV, para Efetivo, Cartão (déb/créd) e Multipagamento
-  // que contenha ao menos um desses meios. PIX e similares não abrem gaveta.
+  // que contenha ao menos um desses meios. pix e similares não abrem gaveta.
   // Falha silenciosamente — venda NÃO é bloqueada se a gaveta não responder.
   if (_gavetaDeveAbrir(pag, obsPagPDV)) {
     _abrirGavetaDC335(`venda #${novoPedido?.id ?? "PDV"} — ${pag}`);
