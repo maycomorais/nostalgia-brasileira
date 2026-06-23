@@ -636,9 +636,6 @@
                 <div id="pdv-lista" class="pdv-cards-lista"></div>
               </div>
 
-              <!-- Scroll wrapper: totais + pagamento — footer fica fora e sempre visível -->
-              <div class="pdv-dir-bottom-scroll">
-
               <!-- Totais -->
               <div class="pdv-dir-totais">
                 <div class="pdv-dir-total-row" id="pdv-row-desconto" style="display:none;color:#e67e22">
@@ -666,6 +663,8 @@
                   <option value="Transferencia">🏦 Alias (PY)</option>
                   <option value="QrPy">📱 QR Paraguay</option>
                   <option value="Multipagamento">🔀 Dividir</option>
+                  <option value="Mensalista">🎫 Mensalista</option>
+                  <option value="NaNota">📋 Colocar na Nota</option>
                 </select>
                 <div id="balcao-pag-info" style="display:none;background:#e8f5e9;border:1px solid #4caf50;border-radius:5px;padding:5px 8px;font-size:0.82rem;color:#1b5e20;margin-top:3px"></div>
               </div>
@@ -710,7 +709,57 @@
                 </div>
               </div>
 
-              </div><!-- /pdv-dir-bottom-scroll -->
+              <!-- Box Mensalista -->
+              <div id="box-mensalista-pdv" style="display:none;padding:4px 8px 0">
+                <div style="font-size:0.72rem;font-weight:700;color:#1a7a2e;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">🎫 Selecionar Mensalista</div>
+                <input type="text" id="pdv-mens-busca" placeholder="Buscar cliente mensalista..."
+                  oninput="pdvFiltrarMensalistas()"
+                  style="width:100%;padding:6px 9px;border:1.5px solid #d1fae5;border-radius:6px;font-size:0.8rem;outline:none;margin-bottom:5px">
+                <div id="pdv-mens-lista" style="max-height:130px;overflow-y:auto;display:flex;flex-direction:column;gap:3px"></div>
+                <div id="pdv-mens-selecionado" style="display:none;background:#f0fdf4;border:1.5px solid #86efac;border-radius:7px;padding:7px 10px;margin-top:5px">
+                  <div style="display:flex;justify-content:space-between;align-items:center">
+                    <div>
+                      <div id="pdv-mens-sel-nome" style="font-weight:700;font-size:0.85rem"></div>
+                      <div id="pdv-mens-sel-saldo" style="font-size:0.75rem;color:#15803d;margin-top:1px"></div>
+                    </div>
+                    <button onclick="pdvDeselecionarMensalista()" style="background:#fee2e2;border:none;border-radius:5px;padding:3px 7px;cursor:pointer;font-size:0.75rem;color:#dc2626">✕</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Box Na Nota (fiado) -->
+              <div id="box-nanota-pdv" style="display:none;padding:4px 8px 0">
+                <div style="font-size:0.72rem;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">📋 Colocar na Nota do Cliente</div>
+                <input type="text" id="pdv-nota-busca" placeholder="Buscar cliente..."
+                  oninput="pdvFiltrarClientesNota()"
+                  style="width:100%;padding:6px 9px;border:1.5px solid #ede9fe;border-radius:6px;font-size:0.8rem;outline:none;margin-bottom:5px">
+                <div id="pdv-nota-lista" style="max-height:100px;overflow-y:auto;display:flex;flex-direction:column;gap:3px"></div>
+                <div id="pdv-nota-selecionado" style="display:none;background:#faf5ff;border:1.5px solid #c4b5fd;border-radius:7px;padding:7px 10px;margin-top:5px">
+                  <div style="display:flex;justify-content:space-between;align-items:center">
+                    <div>
+                      <div id="pdv-nota-sel-nome" style="font-weight:700;font-size:0.85rem"></div>
+                      <div id="pdv-nota-sel-tel" style="font-size:0.75rem;color:#7c3aed;margin-top:1px"></div>
+                    </div>
+                    <button onclick="pdvDeselecionarNota()" style="background:#fee2e2;border:none;border-radius:5px;padding:3px 7px;cursor:pointer;font-size:0.75rem;color:#dc2626">✕</button>
+                  </div>
+                </div>
+                <!-- Cadastrar novo cliente inline -->
+                <div id="pdv-nota-novo" style="display:none;border-top:1px dashed #c4b5fd;margin-top:8px;padding-top:8px">
+                  <div style="font-size:0.72rem;font-weight:700;color:#7c3aed;margin-bottom:5px">+ Novo cliente</div>
+                  <input type="text" id="pdv-nota-novo-nome" placeholder="Nome *"
+                    style="width:100%;padding:6px 9px;border:1.5px solid #ede9fe;border-radius:6px;font-size:0.8rem;outline:none;margin-bottom:4px">
+                  <input type="tel" id="pdv-nota-novo-tel" placeholder="Telefone *"
+                    style="width:100%;padding:6px 9px;border:1.5px solid #ede9fe;border-radius:6px;font-size:0.8rem;outline:none;margin-bottom:4px">
+                  <button onclick="pdvCadastrarClienteNota()"
+                    style="width:100%;padding:6px;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer;font-size:0.78rem">
+                    ✅ Cadastrar e Selecionar
+                  </button>
+                </div>
+                <button onclick="document.getElementById('pdv-nota-novo').style.display = document.getElementById('pdv-nota-novo').style.display==='none'?'block':'none'"
+                  style="width:100%;padding:5px;background:#f3f0ff;color:#7c3aed;border:1.5px dashed #c4b5fd;border-radius:6px;font-size:0.74rem;font-weight:600;cursor:pointer;margin-top:5px">
+                  + Cadastrar novo cliente
+                </button>
+              </div>
 
               <!-- Botões de ação -->
               <div class="pdv-dir-footer">
@@ -2667,21 +2716,36 @@
         <div style="font-size:0.8rem;color:#2980b9;font-weight:600" id="mens-ent-valor-unit"></div>
       </div>
     </div>
-    <div style="display:grid;gap:14px">
-      <div>
-        <label style="font-size:0.78rem;font-weight:600;color:#4b5563;display:block;margin-bottom:5px;text-transform:uppercase" data-i18n="mens.qtd_entregue">Quantidade entregue *</label>
-        <input type="number" id="mens-ent-qtd" value="1" min="1"
-          style="width:100%;padding:12px 14px;border:1.5px solid #e5e7eb;border-radius:9px;font-size:1.1rem;font-weight:700;outline:none;text-align:center">
-      </div>
-      <div>
-        <label style="font-size:0.78rem;font-weight:600;color:#4b5563;display:block;margin-bottom:5px;text-transform:uppercase" data-i18n="mens.obs_opcional">Observação (opcional)</label>
-        <input type="text" id="mens-ent-obs" data-i18n-ph="mens.ex_almoco" placeholder="Ex: Almoço, sem sal..."
-          style="width:100%;padding:10px 13px;border:1.5px solid #e5e7eb;border-radius:9px;font-size:0.9rem;outline:none">
+    <input type="hidden" id="mens-ent-valor-unit-preco">
+    <div id="mens-ent-campos-kg" style="display:grid;gap:10px">
+      <!-- Kg e Valor lado a lado (só para planos kg) -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px" id="mens-ent-row-bidir">
+        <div>
+          <label id="mens-ent-qtd-label" style="font-size:0.78rem;font-weight:600;color:#4b5563;display:block;margin-bottom:5px;text-transform:uppercase">Peso (kg) *</label>
+          <input type="number" id="mens-ent-qtd" value="0.500" min="0.001" step="0.001"
+            oninput="_mensAtualizarValorEntrega()"
+            style="width:100%;padding:11px 10px;border:1.5px solid #e5e7eb;border-radius:9px;font-size:1rem;font-weight:700;outline:none;text-align:center">
+        </div>
+        <div>
+          <label style="font-size:0.78rem;font-weight:600;color:#4b5563;display:block;margin-bottom:5px;text-transform:uppercase">Valor (Gs)</label>
+          <input type="number" id="mens-ent-valor-input" placeholder="Automático" min="0" step="1"
+            oninput="_mensAtualizarPesoEntrega()"
+            style="width:100%;padding:11px 10px;border:1.5px solid #e5e7eb;border-radius:9px;font-size:1rem;font-weight:700;outline:none;text-align:center;color:#1a7a2e">
+        </div>
       </div>
     </div>
-    <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 14px;font-size:0.8rem;color:#92400e;margin-top:14px" data-i18n="mens.aviso_entrega">
-      💡 Esta entrega <b>não entra no financeiro</b> — apenas desconta do saldo do plano.
+    <div id="mens-ent-campos-un" style="display:none">
+      <label id="mens-ent-qtd-label-un" style="font-size:0.78rem;font-weight:600;color:#4b5563;display:block;margin-bottom:5px;text-transform:uppercase" data-i18n="mens.qtd_entregue">Quantidade entregue *</label>
+      <input type="number" id="mens-ent-qtd-un" value="1" min="1" step="1"
+        style="width:100%;padding:12px 14px;border:1.5px solid #e5e7eb;border-radius:9px;font-size:1.1rem;font-weight:700;outline:none;text-align:center">
     </div>
+    <div style="margin-top:10px">
+      <label style="font-size:0.78rem;font-weight:600;color:#4b5563;display:block;margin-bottom:5px;text-transform:uppercase" data-i18n="mens.obs_opcional">Observação (opcional)</label>
+      <input type="text" id="mens-ent-obs" data-i18n-ph="mens.ex_almoco" placeholder="Ex: Almoço, sem sal..."
+        style="width:100%;padding:10px 13px;border:1.5px solid #e5e7eb;border-radius:9px;font-size:0.9rem;outline:none">
+    </div>
+    <!-- Itens adicionais (desconto do saldo) -->
+    <div id="mens-ent-itens-extras-cont"></div>
     <div style="display:flex;gap:10px;margin-top:20px">
       <button onclick="fecharModal('modal-mens-entrega')" style="flex:1;padding:11px;border:1.5px solid #e5e7eb;background:#fff;border-radius:9px;font-weight:600;cursor:pointer;font-size:0.9rem;color:#4b5563" data-i18n="geral.cancelar">Cancelar</button>
       <button onclick="mensSalvarEntrega()" style="flex:2;padding:11px;background:#1a7a2e;color:#fff;border:none;border-radius:9px;font-weight:700;cursor:pointer;font-size:0.9rem" data-i18n="mens.confirmar_entrega">✅ Confirmar Entrega</button>

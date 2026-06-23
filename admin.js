@@ -9557,11 +9557,151 @@ function atualizarInfoPagPDV(total) {
       }
       atualizarRestanteMultiPDV();
     }
+  } else if (pag === "Mensalista") {
+    const box = document.getElementById("box-mensalista-pdv");
+    if (box) { box.style.display = "block"; pdvCarregarMensalistas(); }
+  } else if (pag === "NaNota") {
+    const box = document.getElementById("box-nanota-pdv");
+    if (box) { box.style.display = "block"; pdvCarregarClientesNota(); }
+  }
+
+  // Oculta boxes das outras formas ao trocar
+  if (pag !== "Mensalista") {
+    const b = document.getElementById("box-mensalista-pdv");
+    if (b) b.style.display = "none";
+  }
+  if (pag !== "NaNota") {
+    const b = document.getElementById("box-nanota-pdv");
+    if (b) b.style.display = "none";
   }
 }
 
+// ── MENSALISTA NO PDV ──────────────────────────────────────────────
+let _pdvMensalistas     = [];   // planos ativos carregados
+let _pdvMensalistaSel   = null; // plano selecionado
+
+async function pdvCarregarMensalistas() {
+  if (_pdvMensalistas.length > 0) { pdvRenderMensalistas(_pdvMensalistas); return; }
+  const { data } = await supa
+    .from('planos_mensalistas')
+    .select('id, produto_nome, quantidade_restante, valor_restante, clientes(id, nome, telefone)')
+    .eq('ativo', true)
+    .order('id');
+  _pdvMensalistas = data || [];
+  pdvRenderMensalistas(_pdvMensalistas);
+}
+
+function pdvFiltrarMensalistas() {
+  const q = document.getElementById('pdv-mens-busca')?.value.toLowerCase().trim() || '';
+  const filtrado = q ? _pdvMensalistas.filter(p =>
+    (p.clientes?.nome || '').toLowerCase().includes(q) ||
+    (p.produto_nome || '').toLowerCase().includes(q)
+  ) : _pdvMensalistas;
+  pdvRenderMensalistas(filtrado);
+}
+
+function pdvRenderMensalistas(lista) {
+  const cont = document.getElementById('pdv-mens-lista');
+  if (!cont) return;
+  if (!lista.length) { cont.innerHTML = '<div style="font-size:0.78rem;color:#aaa;text-align:center;padding:6px">Nenhum plano ativo encontrado</div>'; return; }
+  const isKg = (p) => (p.produto_nome || '').toLowerCase().includes('kg');
+  cont.innerHTML = lista.map(p => {
+    const saldo = isKg(p)
+      ? `${(p.quantidade_restante / 1000).toFixed(3).replace(/\.?0+$/, '')} kg · Gs ${Math.round(p.valor_restante || 0).toLocaleString('es-PY')}`
+      : `${p.quantidade_restante} un · Gs ${Math.round(p.valor_restante || 0).toLocaleString('es-PY')}`;
+    return `<button onclick="pdvSelecionarMensalista(${p.id})"
+      style="text-align:left;background:#f0fdf4;border:1.5px solid #86efac;border-radius:7px;padding:6px 9px;cursor:pointer;font-size:0.78rem;width:100%">
+      <div style="font-weight:700;color:#111">${p.clientes?.nome || '—'}</div>
+      <div style="color:#15803d;font-size:0.72rem">${p.produto_nome} · ${saldo}</div>
+    </button>`;
+  }).join('');
+}
+
+function pdvSelecionarMensalista(planoId) {
+  _pdvMensalistaSel = _pdvMensalistas.find(p => p.id === planoId);
+  if (!_pdvMensalistaSel) return;
+  const p = _pdvMensalistaSel;
+  const isKg = (p.produto_nome || '').toLowerCase().includes('kg');
+  const saldo = isKg
+    ? `${(p.quantidade_restante / 1000).toFixed(3).replace(/\.?0+$/, '')} kg · Gs ${Math.round(p.valor_restante || 0).toLocaleString('es-PY')}`
+    : `${p.quantidade_restante} un · Gs ${Math.round(p.valor_restante || 0).toLocaleString('es-PY')}`;
+  document.getElementById('pdv-mens-sel-nome').textContent = p.clientes?.nome || '—';
+  document.getElementById('pdv-mens-sel-saldo').textContent = `${p.produto_nome} · Saldo: ${saldo}`;
+  document.getElementById('pdv-mens-selecionado').style.display = 'block';
+  document.getElementById('pdv-mens-lista').innerHTML = '';
+  document.getElementById('pdv-mens-busca').value = '';
+}
+
+function pdvDeselecionarMensalista() {
+  _pdvMensalistaSel = null;
+  document.getElementById('pdv-mens-selecionado').style.display = 'none';
+  pdvRenderMensalistas(_pdvMensalistas);
+}
+
+// ── COLOCAR NA NOTA (FIADO) ────────────────────────────────────────
+let _pdvClientesNota   = [];
+let _pdvClienteNotaSel = null;
+
+async function pdvCarregarClientesNota() {
+  if (_pdvClientesNota.length > 0) { pdvRenderClientesNota(_pdvClientesNota); return; }
+  const { data } = await supa.from('clientes').select('id, nome, telefone').order('nome');
+  _pdvClientesNota = data || [];
+  pdvRenderClientesNota(_pdvClientesNota);
+}
+
+function pdvFiltrarClientesNota() {
+  const q = document.getElementById('pdv-nota-busca')?.value.toLowerCase().trim() || '';
+  const filtrado = q ? _pdvClientesNota.filter(c =>
+    c.nome.toLowerCase().includes(q) || (c.telefone || '').includes(q)
+  ) : _pdvClientesNota;
+  pdvRenderClientesNota(filtrado);
+}
+
+function pdvRenderClientesNota(lista) {
+  const cont = document.getElementById('pdv-nota-lista');
+  if (!cont) return;
+  if (!lista.length) { cont.innerHTML = '<div style="font-size:0.78rem;color:#aaa;text-align:center;padding:6px">Nenhum cliente encontrado</div>'; return; }
+  cont.innerHTML = lista.map(c => `
+    <button onclick="pdvSelecionarClienteNota(${c.id})"
+      style="text-align:left;background:#faf5ff;border:1.5px solid #c4b5fd;border-radius:7px;padding:6px 9px;cursor:pointer;font-size:0.78rem;width:100%">
+      <div style="font-weight:700;color:#111">${c.nome}</div>
+      <div style="color:#7c3aed;font-size:0.72rem">${c.telefone || ''}</div>
+    </button>`).join('');
+}
+
+function pdvSelecionarClienteNota(clienteId) {
+  _pdvClienteNotaSel = _pdvClientesNota.find(c => c.id === clienteId);
+  if (!_pdvClienteNotaSel) return;
+  document.getElementById('pdv-nota-sel-nome').textContent = _pdvClienteNotaSel.nome;
+  document.getElementById('pdv-nota-sel-tel').textContent  = _pdvClienteNotaSel.telefone || '';
+  document.getElementById('pdv-nota-selecionado').style.display = 'block';
+  document.getElementById('pdv-nota-lista').innerHTML = '';
+  document.getElementById('pdv-nota-busca').value = '';
+}
+
+function pdvDeselecionarNota() {
+  _pdvClienteNotaSel = null;
+  document.getElementById('pdv-nota-selecionado').style.display = 'none';
+  pdvRenderClientesNota(_pdvClientesNota);
+}
+
+async function pdvCadastrarClienteNota() {
+  const nome = document.getElementById('pdv-nota-novo-nome')?.value.trim();
+  const tel  = document.getElementById('pdv-nota-novo-tel')?.value.trim();
+  if (!nome || !tel) { alert('Informe nome e telefone.'); return; }
+  const { data, error } = await supa.from('clientes').insert([{ nome, telefone: tel }]).select('id, nome, telefone').single();
+  if (error) { alert('Erro ao cadastrar: ' + error.message); return; }
+  _pdvClientesNota.push(data);
+  _pdvClientesNota.sort((a, b) => a.nome.localeCompare(b.nome));
+  document.getElementById('pdv-nota-novo-nome').value = '';
+  document.getElementById('pdv-nota-novo-tel').value  = '';
+  document.getElementById('pdv-nota-novo').style.display = 'none';
+  pdvSelecionarClienteNota(data.id);
+}
+
 // ── MULTIPAGAMENTO PDV ─────────────────────────────────────────────
-let _multiContadorPDV = 0;
+let _multiContadorPDV       = 0;
+let _pdvPularMovimentacao   = false;  // true para Mensalista e Na Nota
 
 function voltarPagamentoPDVUnico() {
   document.getElementById("balcao-pag").value = "Efetivo";
@@ -9748,6 +9888,24 @@ async function salvarPedidoBalcao() {
     obsPagPDV = JSON.stringify(partesPDV);
   }
 
+  // ── Validação Mensalista ──────────────────────────────────────
+  if (pag === "Mensalista") {
+    if (!_pdvMensalistaSel) { alert("Selecione um mensalista antes de finalizar."); return; }
+    const total = parseInt(document.getElementById("balcao-total")?.innerText.replace(/\D/g, "") || "0");
+    const saldoVal = Math.round(_pdvMensalistaSel.valor_restante || 0);
+    if (total > saldoVal) {
+      const ok = confirm(`⚠️ Saldo financeiro do mensalista insuficiente.\n\nSaldo: Gs ${saldoVal.toLocaleString("es-PY")}\nTotal: Gs ${total.toLocaleString("es-PY")}\n\nContinuar mesmo assim?`);
+      if (!ok) return;
+    }
+    obsPagPDV = `Mensalista: ${_pdvMensalistaSel.clientes?.nome || ""} (plano #${_pdvMensalistaSel.id})`;
+  }
+
+  // ── Validação Na Nota ─────────────────────────────────────────
+  if (pag === "NaNota") {
+    if (!_pdvClienteNotaSel) { alert("Selecione o cliente para colocar na nota."); return; }
+    obsPagPDV = `Na Nota: ${_pdvClienteNotaSel.nome} (${_pdvClienteNotaSel.telefone || ""})`;
+  }
+
   // ── Novos itens ganham status_item: 'pendente' ─────────────────
   const novosItens = carrinhoPDV.map((i) => ({
     id: i.id || Date.now() + Math.random(),
@@ -9882,6 +10040,53 @@ async function salvarPedidoBalcao() {
   // Descontar estoque imediatamente (PDV não passa por mudarStatus)
   if (novoPedido?.id) await _descontarEstoqueVenda(novoPedido.id, novosItens);
 
+  // ── Mensalista: desconta saldo financeiro (e kg se tiver) ─────
+  if (pag === "Mensalista" && _pdvMensalistaSel) {
+    const pm = _pdvMensalistaSel;
+    const totalVenda = subtotalLiquido; // sem frete para mensalista
+    const isKg = (pm.produto_nome || "").toLowerCase().includes("kg");
+    // Desconta valor
+    const novoValorRestante = Math.max(0, Math.round((pm.valor_restante || 0) - totalVenda));
+    // Desconta kg se o carrinho tiver item kg do plano dele
+    let novaQtdRestante = pm.quantidade_restante;
+    if (isKg) {
+      const totalGramas = novosItens.filter(i => i._isKg).reduce((s, i) => s + (i.peso_gramas || 0), 0);
+      // peso_gramas já está em gramas inteiras = unidades internas (×1000)
+      novaQtdRestante = Math.max(0, pm.quantidade_restante - totalGramas);
+    } else {
+      const totalUn = novosItens.filter(i => !i._isKg).reduce((s, i) => s + (i.qtd || 1), 0);
+      novaQtdRestante = Math.max(0, pm.quantidade_restante - totalUn);
+    }
+    await supa.from("planos_mensalistas")
+      .update({ valor_restante: novoValorRestante, quantidade_restante: novaQtdRestante })
+      .eq("id", pm.id);
+    // Registrar entrega no histórico
+    await supa.from("mensalista_entregas").insert([{
+      plano_id: pm.id,
+      cliente_id: pm.clientes?.id || null,
+      produto_nome: pm.produto_nome,
+      quantidade: isKg
+        ? novosItens.filter(i => i._isKg).reduce((s, i) => s + (i.peso_gramas || 0), 0)
+        : novosItens.filter(i => !i._isKg).reduce((s, i) => s + (i.qtd || 1), 0),
+      observacoes: `PDV #${novoPedido.id}`,
+      valor_extras: Math.round(totalVenda),
+    }]);
+    // Atualiza cache local
+    _pdvMensalistaSel.valor_restante   = novoValorRestante;
+    _pdvMensalistaSel.quantidade_restante = novaQtdRestante;
+    // Venda mensalista NÃO entra no financeiro — pula movimentacao_caixa
+    _pdvPularMovimentacao = true;
+  }
+
+  // ── Na Nota: marca o pedido com cliente vinculado ─────────────
+  if (pag === "NaNota" && _pdvClienteNotaSel) {
+    await supa.from("pedidos")
+      .update({ cliente_telefone: _pdvClienteNotaSel.telefone || "" })
+      .eq("id", novoPedido.id);
+    // Na Nota também NÃO entra no financeiro como recebido
+    _pdvPularMovimentacao = true;
+  }
+
   // ── Gaveta automática ─────────────────────────────────────────────────────
   // Abre apenas no PDV, para Efetivo, Cartão (déb/créd) e Multipagamento
   // que contenha ao menos um desses meios. pix e similares não abrem gaveta.
@@ -9974,6 +10179,19 @@ async function salvarPedidoBalcao() {
   document.getElementById("balcao-pag").style.display = "";
   const boxMultiPDV = document.getElementById("box-multi-pdv");
   if (boxMultiPDV) boxMultiPDV.style.display = "none";
+  // Reset Mensalista
+  _pdvMensalistaSel = null;
+  _pdvPularMovimentacao = false;
+  const boxMensPDV = document.getElementById("box-mensalista-pdv");
+  if (boxMensPDV) { boxMensPDV.style.display = "none"; }
+  const mensSel = document.getElementById("pdv-mens-selecionado");
+  if (mensSel) mensSel.style.display = "none";
+  // Reset Na Nota
+  _pdvClienteNotaSel = null;
+  const boxNotaPDV = document.getElementById("box-nanota-pdv");
+  if (boxNotaPDV) boxNotaPDV.style.display = "none";
+  const notaSel = document.getElementById("pdv-nota-selecionado");
+  if (notaSel) notaSel.style.display = "none";
   // Reset box efetivo / troco
   const _recEl = document.getElementById("pdv-valor-recebido");
   const _trEl  = document.getElementById("pdv-troco-row");

@@ -351,9 +351,7 @@ async function mensSalvarPlano() {
 
   if (!cliente_id)    { alert(t('mens.alerta_cliente', 'Selecione o cliente.')); return; }
   if (!produto_nome)  { alert(t('mens.alerta_produto', 'Insira o produto/item do plano.')); return; }
-  if (qtd_total <= 0) { alert(tipo === 'kg'
-      ? 'Insira o peso total em kg (ex: 5.0).'
-      : t('mens.alerta_qtd', 'Insira a quantidade total de itens (ex: 22 refeições).')); return; }
+  // Quantidade é opcional — 0 significa plano apenas por valor/saldo
   if (valor <= 0)     { alert(t('mens.alerta_valor', 'Insira o valor do plano.')); return; }
 
   const payload = {
@@ -427,20 +425,28 @@ function mensAbrirEntrega(planoId) {
     if (qtdLabel) qtdLabel.textContent = t('mens.qtd_entregue', 'Quantidade entregue *');
   }
 
-  // Valor unitário
+  // Valor unitário — exibe e ativa campos bidirecionais kg↔valor
   const elValor = document.getElementById('mens-ent-valor-unit');
+  const valorUnit = (p.quantidade_total > 0 && p.valor_plano > 0)
+    ? (p.valor_plano / p.quantidade_total)
+    : 0;
   if (elValor) {
-    if (p.quantidade_total > 0) {
-      const valorUnit = p.valor_plano / p.quantidade_total;
-      if (isKg) {
-        elValor.textContent = `Gs ${Math.round(valorUnit * 10).toLocaleString('es-PY')} /kg`;
-      } else {
-        elValor.textContent = `Gs ${Math.round(valorUnit).toLocaleString('es-PY')} /un`;
-      }
+    if (isKg && valorUnit > 0) {
+      // valorUnit está em Gs por unidade interna (1/1000 kg), multiplica por 1000 para Gs/kg
+      elValor.textContent = `Gs ${Math.round(valorUnit * 1000).toLocaleString('es-PY')} /kg`;
+    } else if (!isKg && valorUnit > 0) {
+      elValor.textContent = `Gs ${Math.round(valorUnit).toLocaleString('es-PY')} /un`;
     } else {
       elValor.textContent = '';
     }
   }
+
+  // Armazena valor unitário no input hidden para cálculos bidirecionais
+  const _vup = document.getElementById('mens-ent-valor-unit-preco');
+  if (_vup) _vup.value = valorUnit;
+
+  // Seta o input de valor correspondente ao peso/qtd default
+  _mensAtualizarValorEntrega();
 
   // Renderiza seção de itens extras
   _mensRenderItensExtras();
@@ -448,6 +454,43 @@ function mensAbrirEntrega(planoId) {
   const _mme = document.getElementById('modal-mens-entrega');
   if (_mme) { _mme.style.cssText += ';position:fixed!important;top:0;left:0;width:100%;height:100%;z-index:9999;'; _mme.style.display = 'flex'; }
   setTimeout(() => document.getElementById('mens-ent-qtd')?.focus(), 100);
+}
+
+// ──────────────────────────────────────────────────────────────
+//  CÁLCULO BIDIRECIONAL KG ↔ VALOR NA ENTREGA
+// ──────────────────────────────────────────────────────────────
+function _mensAtualizarValorEntrega() {
+  const p = _mens_planoEntregaAtual;
+  if (!p) return;
+  const tipo = _mensGetTipo(p);
+  const isKg = tipo === 'kg';
+  const valorUnit = parseFloat(document.getElementById('mens-ent-valor-unit-preco')?.value) || 0;
+  if (!isKg || valorUnit <= 0) return;
+
+  const qtdRaw = parseFloat(document.getElementById('mens-ent-qtd')?.value) || 0;
+  const valorTotal = Math.round(qtdRaw * valorUnit * 1000); // valorUnit é Gs/unidade-interna; qtd é kg
+  const elValInput = document.getElementById('mens-ent-valor-input');
+  if (elValInput && document.activeElement !== elValInput) {
+    elValInput.value = valorTotal > 0 ? valorTotal : '';
+  }
+}
+
+function _mensAtualizarPesoEntrega() {
+  const p = _mens_planoEntregaAtual;
+  if (!p) return;
+  const tipo = _mensGetTipo(p);
+  const isKg = tipo === 'kg';
+  const valorUnit = parseFloat(document.getElementById('mens-ent-valor-unit-preco')?.value) || 0;
+  if (!isKg || valorUnit <= 0) return;
+
+  const valorDigitado = parseFloat(document.getElementById('mens-ent-valor-input')?.value) || 0;
+  if (valorDigitado <= 0) return;
+  // kg = valor / (valorUnit * 1000)
+  const kgCalculado = valorDigitado / (valorUnit * 1000);
+  const qtdInput = document.getElementById('mens-ent-qtd');
+  if (qtdInput && document.activeElement !== qtdInput) {
+    qtdInput.value = kgCalculado.toFixed(3);
+  }
 }
 
 // ──────────────────────────────────────────────────────────────
