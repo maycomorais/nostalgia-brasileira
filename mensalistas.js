@@ -372,9 +372,17 @@ async function mensSalvarPlano() {
       const diferenca = qtd_total - planoAtual.quantidade_total;
       payload.quantidade_restante = Math.max(0, planoAtual.quantidade_restante + diferenca);
     }
+    // Atualizar valor_restante proporcionalmente se o valor do plano mudou
+    if (planoAtual && valor !== planoAtual.valor_plano && planoAtual.quantidade_total > 0) {
+      const percRestante = planoAtual.quantidade_restante / planoAtual.quantidade_total;
+      payload.valor_restante = Math.round(valor * percRestante);
+    } else if (planoAtual && valor !== planoAtual.valor_plano) {
+      payload.valor_restante = valor; // plano só por valor, reseta
+    }
     ({ error } = await supa.from('planos_mensalistas').update(payload).eq('id', id));
   } else {
     payload.quantidade_restante = qtd_total;
+    payload.valor_restante      = valor;  // saldo inicial = valor total do plano
     ({ error } = await supa.from('planos_mensalistas').insert([payload]));
   }
 

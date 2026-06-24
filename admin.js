@@ -178,6 +178,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     "estatisticas",
     "ficha-tecnica",
     "crm",
+    "financeiro",   // requer perfilUsuario para saber se é gestor ou funcionário
   ];
   if (
     !lastTab ||
@@ -306,6 +307,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         "menu-ficha-tecnica",
         "menu-crm",
         "menu-mensalistas",
+        "menu-notas",
       ].forEach((id) => {
         const m = document.getElementById(id);
         if (m) m.style.display = "flex";
@@ -316,6 +318,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     carregarMotoboysSelect();
     // Re-aplica traduções após auth (perfilUsuario e features já carregados)
     if (typeof applyAdminI18n === "function") applyAdminI18n();
+
+    // ── Restaura aba restrita se era a última aba visitada ──────────
+    // (financeiro e outras abas restritas foram substituídas por dashboard
+    //  no startup — agora que perfilUsuario está definido, podemos restaurar)
+    const _savedTab = localStorage.getItem("app_lastTab");
+    const _currentTab = document.querySelector(".tab-content.active")?.id;
+    if (_savedTab && _savedTab !== _currentTab && _savedTab !== "dashboard") {
+      const _tabEl = document.getElementById(_savedTab);
+      if (_tabEl) showTab(_savedTab);
+    }
 
     // ── Controle de Assinatura (barra de aviso / bloqueio) ──
     if (typeof SubscriptionUI !== "undefined") {
@@ -519,6 +531,9 @@ function showTab(tabId, event) {
   if (realTabId === "mensalistas") {
     initMensalistas();
   }
+  if (realTabId === "notas") {
+    notasInicializar();
+  }
   if (realTabId === "configuracoes") {
     carregarConfiguracoes();
     if (perfilUsuario === "dono" || perfilUsuario === "gerente") {
@@ -670,6 +685,7 @@ function _aplicarVisibilidadeAbas() {
     "menu-turnos":        "turnos",
     "menu-produtos":      "produtos",
     "menu-mensalistas":   "mensalistas",
+    "menu-notas":         "notas",
   };
   // adminMaster nunca sofre restrições — ele define as regras
   if (perfilUsuario === "adminMaster") return;
@@ -1777,29 +1793,45 @@ async function calcularFinanceiro() {
   // ── 1. Carrega/verifica sessão ativa ─────────────────────────────
   await _carregarSessaoCaixa();
 
-  // ── 2. Se não houver sessão aberta, exibe alerta de abertura ─────
+  // ── 2. Se não houver sessão aberta ───────────────────────────────
   if (!_sessaoCaixaAtiva) {
-    _exibirAlertaAberturaCaixa();
-    return; // não renderiza nada enquanto não houver sessão
+    if (ehGestor) {
+      // Gestor vê o financeiro pelo filtro de datas, sem precisar de caixa aberto
+      // Usa hoje como intervalo padrão se os campos estiverem vazios
+      if (!elInicio.value || !elFim.value) {
+        const hoje = new Date().toISOString().split("T")[0];
+        if (!elInicio.value) elInicio.value = hoje;
+        if (!elFim.value)    elFim.value    = hoje;
+      }
+      // Continua normalmente abaixo — _sessaoCaixaAtiva será null e tratado
+    } else {
+      // Funcionário precisa de caixa aberto
+      _exibirAlertaAberturaCaixa();
+      return;
+    }
   }
 
-  // ── 3. Define intervalo de tempo baseado na SESSÃO, não no calendário ─
-  const sessaoInicio = _sessaoCaixaAtiva.aberto_em;
-  const sessaoFim    = _sessaoCaixaAtiva.fechado_em || new Date().toISOString();
+  // ── 3. Define intervalo de tempo ──────────────────────────────────
+  const _tz = 3 * 60 * 60 * 1000; // UTC-3 PY
+  let utcI, utcF;
 
-  // Gestores podem sobrepor o intervalo com o filtro de datas da tela
-  let utcI = sessaoInicio;
-  let utcF = sessaoFim;
   if (ehGestor && elInicio.value && elFim.value) {
-    const _tz = 3 * 60 * 60 * 1000; // UTC-3 PY (horário de verão permanente desde 2024)
+    // Gestor: usa sempre o filtro de datas da tela
     utcI = new Date(new Date(elInicio.value + "T00:00:00").getTime() + _tz).toISOString();
     utcF = new Date(new Date(elFim.value   + "T23:59:59").getTime() + _tz).toISOString();
-  } else if (!elInicio.value || !elFim.value) {
-    // Preenche os campos de data com os valores da sessão para exibição
-    const dAbr = new Date(sessaoInicio);
-    elInicio.value = dAbr.toISOString().split("T")[0];
-    const dFch = new Date(sessaoFim);
-    elFim.value    = dFch.toISOString().split("T")[0];
+  } else if (_sessaoCaixaAtiva) {
+    // Funcionário com sessão: usa intervalo da sessão
+    const sessaoInicio = _sessaoCaixaAtiva.aberto_em;
+    const sessaoFim    = _sessaoCaixaAtiva.fechado_em || new Date().toISOString();
+    utcI = sessaoInicio;
+    utcF = sessaoFim;
+    if (!elInicio.value) elInicio.value = new Date(sessaoInicio).toISOString().split("T")[0];
+    if (!elFim.value)    elFim.value    = new Date(sessaoFim).toISOString().split("T")[0];
+  } else {
+    // Fallback: hoje
+    const hoje = new Date().toISOString().split("T")[0];
+    utcI = new Date(new Date(hoje + "T00:00:00").getTime() + _tz).toISOString();
+    utcF = new Date(new Date(hoje + "T23:59:59").getTime() + _tz).toISOString();
   }
 
   const tipoFiltro    = elTipo.value;
@@ -1834,17 +1866,28 @@ async function calcularFinanceiro() {
   else if (facturaFiltro === "sem_factura")
     peds = peds.filter((p) => !p.dados_factura?.ruc && !p.dados_factura?.ci);
 
-  // ── 5. Movimentações de caixa da SESSÃO ──────────────────────────
-  let caixaQuery = supa
-    .from("movimentacoes_caixa")
-    .select("*")
-    .eq("sessao_id", _sessaoCaixaAtiva.id); // vínculo direto à sessão
-  if (!ehGestor) caixaQuery = caixaQuery.eq("usuario_email", emailAtual);
+  // ── 5. Movimentações de caixa ─────────────────────────────────────
+  let caixa = [];
+  if (_sessaoCaixaAtiva?.id) {
+    let caixaQuery = supa
+      .from("movimentacoes_caixa")
+      .select("*")
+      .eq("sessao_id", _sessaoCaixaAtiva.id);
+    if (!ehGestor) caixaQuery = caixaQuery.eq("usuario_email", emailAtual);
+    const { data: caixaData } = await caixaQuery;
+    caixa = caixaData || [];
+  } else if (ehGestor) {
+    // Gestor sem sessão ativa: carrega movimentações pelo intervalo de datas
+    const { data: caixaData } = await supa
+      .from("movimentacoes_caixa")
+      .select("*")
+      .gte("created_at", utcI)
+      .lte("created_at", utcF);
+    caixa = caixaData || [];
+  }
 
-  const { data: caixa } = await caixaQuery;
-
-  // Verifica bloqueio de caixa (sangria limite)
-  _verificarBloqueioCaixa(emailAtual);
+  // Verifica bloqueio de caixa (sangria limite) — só se houver sessão
+  if (_sessaoCaixaAtiva) _verificarBloqueioCaixa(emailAtual);
 
   // ── 6. Cálculos (inalterado) ──────────────────────────────────────
   const safeNum = (v) => {
@@ -1907,13 +1950,17 @@ async function calcularFinanceiro() {
   // Badge do operador / info da sessão
   const badgeCaixa = document.getElementById("badge-caixa-operador");
   if (badgeCaixa) {
-    const dAbr = new Date(_sessaoCaixaAtiva.aberto_em).toLocaleString("pt-BR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" });
-    const dFch = _sessaoCaixaAtiva.fechado_em
-      ? new Date(_sessaoCaixaAtiva.fechado_em).toLocaleString("pt-BR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" })
-      : "em aberto";
-    badgeCaixa.textContent = ehGestor
-      ? `📊 Visão geral — sessão ${_sessaoCaixaAtiva.id} (${_sessaoCaixaAtiva.usuario_email}) · ${dAbr} → ${dFch}`
-      : `💼 Seu caixa — aberto ${dAbr} → ${dFch}`;
+    if (_sessaoCaixaAtiva) {
+      const dAbr = new Date(_sessaoCaixaAtiva.aberto_em).toLocaleString("pt-BR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" });
+      const dFch = _sessaoCaixaAtiva.fechado_em
+        ? new Date(_sessaoCaixaAtiva.fechado_em).toLocaleString("pt-BR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" })
+        : "em aberto";
+      badgeCaixa.textContent = ehGestor
+        ? `📊 Visão geral — sessão ${_sessaoCaixaAtiva.id} (${_sessaoCaixaAtiva.usuario_email}) · ${dAbr} → ${dFch}`
+        : `💼 Seu caixa — aberto ${dAbr} → ${dFch}`;
+    } else {
+      badgeCaixa.textContent = `📊 Visão geral — ${elInicio.value} até ${elFim.value} (sem sessão de caixa)`;
+    }
   }
 
   // Tabelas de despesas e motoboys (código original preservado)
@@ -9844,9 +9891,11 @@ async function salvarPedidoBalcao() {
 
   const nomeFinal = mesa
     ? `MESA ${mesa} - ${cli}`
-    : _soKg
-      ? `BALCÃO KG - ${cli}`
-      : `BALCÃO - ${cli}`;
+    : pag === "NaNota" && _pdvClienteNotaSel
+      ? _pdvClienteNotaSel.nome
+      : _soKg
+        ? `BALCÃO KG - ${cli}`
+        : `BALCÃO - ${cli}`;
 
   // ── Desconto manual ──────────────────────────────────────────
   const descTipo =

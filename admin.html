@@ -224,6 +224,10 @@
           <i class="fas fa-id-card"></i><span class="mobile-hide sidebar-label" data-i18n="sidebar.mensalistas"> Mensalistas</span>
         </div>
 
+        <div class="menu-item" id="menu-notas" onclick="showTab('notas', event)" style="display:none">
+          <i class="fas fa-file-invoice-dollar"></i><span class="mobile-hide sidebar-label"> Na Nota</span>
+        </div>
+
         <div class="menu-item restrito-func" id="menu-configuracoes" onclick="showTab('configuracoes', event)">
           <i class="fas fa-cogs"></i><span class="mobile-hide sidebar-label" data-i18n="sidebar.config"> Config</span>
         </div>
@@ -636,6 +640,9 @@
                 <div id="pdv-lista" class="pdv-cards-lista"></div>
               </div>
 
+              <!-- Scroll wrapper: totais + pagamento — footer fica fora e sempre visível -->
+              <div class="pdv-dir-bottom-scroll">
+
               <!-- Totais -->
               <div class="pdv-dir-totais">
                 <div class="pdv-dir-total-row" id="pdv-row-desconto" style="display:none;color:#e67e22">
@@ -760,6 +767,8 @@
                   + Cadastrar novo cliente
                 </button>
               </div>
+
+              </div><!-- /pdv-dir-bottom-scroll -->
 
               <!-- Botões de ação -->
               <div class="pdv-dir-footer">
@@ -1938,6 +1947,67 @@
         </div>
       </div><!-- /mensalistas -->
 
+      <!-- ══════════════════════════════════════════════════════
+           ABA: CONTAS NA NOTA (FIADO)
+      ══════════════════════════════════════════════════════ -->
+      <div id="notas" class="tab-content">
+        <div style="padding:16px">
+
+          <!-- Cabeçalho -->
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
+            <div>
+              <h2 style="font-size:1.25rem;font-weight:800;color:#111">📋 Contas na Nota</h2>
+              <p style="font-size:0.83rem;color:#6b7280;margin-top:2px">Pedidos fiado — visualize, cobre e quite as contas dos clientes</p>
+            </div>
+            <button onclick="notasCarregar()" style="padding:10px 18px;background:#f3f4f6;color:#374151;border:1.5px solid #e5e7eb;border-radius:10px;font-weight:600;font-size:0.85rem;cursor:pointer">
+              🔄 Atualizar
+            </button>
+          </div>
+
+          <!-- KPIs -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:20px">
+            <div style="background:#fff;border-radius:12px;padding:14px 16px;border:1px solid #e5e7eb">
+              <div style="font-size:0.72rem;color:#6b7280;text-transform:uppercase;font-weight:600;margin-bottom:4px">Clientes</div>
+              <div id="notas-kpi-clientes" style="font-size:1.5rem;font-weight:800;color:#111">0</div>
+            </div>
+            <div style="background:#fff;border-radius:12px;padding:14px 16px;border:1px solid #fecaca">
+              <div style="font-size:0.72rem;color:#dc2626;text-transform:uppercase;font-weight:600;margin-bottom:4px">Total em Aberto</div>
+              <div id="notas-kpi-aberto" style="font-size:1.1rem;font-weight:800;color:#dc2626">Gs 0</div>
+            </div>
+            <div style="background:#fff;border-radius:12px;padding:14px 16px;border:1px solid #bbf7d0">
+              <div style="font-size:0.72rem;color:#16a34a;text-transform:uppercase;font-weight:600;margin-bottom:4px">Já Quitado</div>
+              <div id="notas-kpi-quitado" style="font-size:1.1rem;font-weight:800;color:#16a34a">Gs 0</div>
+            </div>
+            <div style="background:#fff;border-radius:12px;padding:14px 16px;border:1px solid #fde68a">
+              <div style="font-size:0.72rem;color:#92400e;text-transform:uppercase;font-weight:600;margin-bottom:4px">Clientes Pendentes</div>
+              <div id="notas-kpi-pendentes" style="font-size:1.5rem;font-weight:800;color:#92400e">0</div>
+            </div>
+          </div>
+
+          <!-- Filtros -->
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+            <input id="notas-busca" type="search" placeholder="🔍 Buscar por cliente ou telefone..."
+              oninput="notasRenderLista()"
+              style="flex:1;min-width:200px;padding:9px 13px;border:1.5px solid #e5e7eb;border-radius:9px;font-size:0.88rem;outline:none">
+            <select id="notas-filtro-status" onchange="notasFiltrar()"
+              style="padding:9px 13px;border:1.5px solid #e5e7eb;border-radius:9px;font-size:0.88rem;outline:none;background:#fff">
+              <option value="pendente">⏳ Em aberto</option>
+              <option value="quitado">✅ Quitados</option>
+              <option value="todos">📋 Todos</option>
+            </select>
+          </div>
+
+          <!-- Loading -->
+          <div id="notas-loading" style="display:none;justify-content:center;padding:30px">
+            <div style="width:32px;height:32px;border:3px solid #e5e7eb;border-top-color:#dc2626;border-radius:50%;animation:spin 0.8s linear infinite"></div>
+          </div>
+
+          <!-- Lista de clientes com contas -->
+          <div id="notas-lista"></div>
+
+        </div>
+      </div><!-- /notas -->
+
       <!-- ═══════════════════════════════════════════════════════ -->
       <!-- TAB: ASSINATURA — somente adminMaster                   -->
       <!-- ═══════════════════════════════════════════════════════ -->
@@ -2624,6 +2694,7 @@
     <script src="crm.js"></script>
     <script src="filiais.js"></script>
     <script src="mensalistas.js"></script>
+    <script src="notas.js"></script>
 
 <!-- Modal: Novo/Editar Plano -->
 <div id="modal-mens-plano"
