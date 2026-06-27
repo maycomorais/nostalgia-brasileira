@@ -1694,6 +1694,8 @@ let _caixaState = {
   totalTransf: 0,
   totalCartao: 0,
   totalEfetivo: 0,
+  totalNaNota: 0,
+  fundoAbertura: 0,
   qtdPedidos: 0,
 };
 
@@ -1897,7 +1899,7 @@ async function calcularFinanceiro() {
   };
   const fmt = (n) => "Gs " + n.toLocaleString("es-PY");
 
-  let faturamento = 0, totalPix = 0, totalTransf = 0, totalCartao = 0, totalEfetivo = 0;
+  let faturamento = 0, totalPix = 0, totalTransf = 0, totalCartao = 0, totalEfetivo = 0, totalNaNota = 0;
   let custoEntregas = 0, qtdPedidos = 0;
   const motoMap = {};
 
@@ -1906,10 +1908,11 @@ async function calcularFinanceiro() {
     faturamento += val;
     qtdPedidos++;
     const pag = (p.forma_pagamento || "").toLowerCase();
-    if (pag.includes("pix"))          totalPix    += val;
-    else if (pag.includes("transfer")) totalTransf += val;
-    else if (pag.includes("cartao") || pag.includes("cartão")) totalCartao += val;
+    if (pag.includes("pix"))                                      totalPix     += val;
+    else if (pag.includes("transfer"))                            totalTransf  += val;
+    else if (pag.includes("cartao") || pag.includes("cartão"))   totalCartao  += val;
     else if (pag.includes("efetivo") || pag.includes("dinheiro")) totalEfetivo += val;
+    else if (pag === "nanota")                                     totalNaNota  += val;
     if (p.tipo_entrega === "delivery") {
       const taxa = safeNum(p.frete_motoboy) || TAXA_MOTOBOY || 0;
       custoEntregas += taxa;
@@ -1926,13 +1929,17 @@ async function calcularFinanceiro() {
   let totalSaidas = 0, totalEntradas = 0, totalSangria = 0;
   (caixa || []).forEach((c) => {
     const v = safeNum(c.valor);
-    if (c.tipo === "despesa")  totalSaidas  += v;
-    if (c.tipo === "sangria")  { totalSaidas += v; totalSangria += v; }
-    if (c.tipo === "suprimento" || c.tipo === "abertura") totalEntradas += v;
+    if (c.tipo === "despesa")                                      totalSaidas  += v;
+    if (c.tipo === "sangria")                                    { totalSaidas  += v; totalSangria += v; }
+    if (c.tipo === "suprimento" || c.tipo === "abertura" || c.tipo === "entrada") totalEntradas += v;
   });
 
+  // Fundo de abertura: soma no efetivo para refletir o dinheiro físico real na gaveta
+  const fundoAbertura = safeNum(_sessaoCaixaAtiva?.valor_abertura);
+  totalEfetivo += fundoAbertura;
+
   _caixaState = { faturamento, custoEntregas, totalSaidas, totalEntradas,
-                  totalPix, totalTransf, totalCartao, totalEfetivo, qtdPedidos, totalSangria };
+                  totalPix, totalTransf, totalCartao, totalEfetivo, totalNaNota, qtdPedidos, totalSangria, fundoAbertura };
 
   const lucro = faturamento + totalEntradas - custoEntregas - totalSaidas;
   const setV  = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v; };
@@ -1944,6 +1951,8 @@ async function calcularFinanceiro() {
   setV("total-transf",      fmt(totalTransf));
   setV("total-cartao",      fmt(totalCartao));
   setV("total-efetivo",     fmt(totalEfetivo));
+  setV("total-nanota",      fmt(totalNaNota));
+  setV("total-fundo-abertura", fmt(fundoAbertura));
   setV("card-qtd-pedidos",  qtdPedidos);
   setV("card-ticket-medio", fmt(qtdPedidos > 0 ? faturamento / qtdPedidos : 0));
 
@@ -2610,6 +2619,9 @@ async function fecharCaixaResumo() {
     console.warn("Aviso fechamento:", e.message);
   }
 
+  // Dinheiro físico real = fundo de abertura + vendas em efetivo + quitações NaNota - sangrias - despesas pagas em dinheiro
+  const dinheiroCaixa = s.totalEfetivo + s.totalEntradas - s.totalSaidas;
+
   alert(`📊 FECHAMENTO DA SESSÃO #${_sessaoCaixaAtiva.id}
 ═══════════════════════════
 Faturamento Total: ${fmt(s.faturamento)}
@@ -2619,15 +2631,17 @@ Faturamento Total: ${fmt(s.faturamento)}
   📱 Pix:           ${fmt(s.totalPix)}
   💳 Cartão:        ${fmt(s.totalCartao)}
   🏦 Transferência: ${fmt(s.totalTransf)}
+  📋 Na Nota:       ${fmt(s.totalNaNota)}
 
 📦 Pedidos: ${s.qtdPedidos}
 🏍️ Custo Entregas: ${fmt(s.custoEntregas)}
 💸 Saídas: ${fmt(s.totalSaidas)}
-➕ Entradas: ${fmt(s.totalEntradas)}
+➕ Entradas (incl. fundo): ${fmt(s.totalEntradas)}
+  └ Fundo de abertura: ${fmt(s.fundoAbertura)}
 ═══════════════════════════
 💵 RESULTADO: ${fmt(lucro)}
 ═══════════════════════════
-✅ Dinheiro na gaveta: ${fmt(s.totalEfetivo)}
+🪙 DINHEIRO NA GAVETA: ${fmt(dinheiroCaixa)}
 Sessão encerrada!`);
 
   // Limpa estado
@@ -2635,14 +2649,15 @@ Sessão encerrada!`);
   // Atualiza mini-painel do PDV
   if (typeof pdvCarregarPainelCaixa === "function") pdvCarregarPainelCaixa();
   ["card-faturamento","card-custo-moto","card-lucro","total-pix","total-transf",
-   "total-cartao","total-efetivo","card-ticket-medio"].forEach((id) => {
+   "total-cartao","total-efetivo","total-nanota","total-fundo-abertura","card-ticket-medio"].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.innerText = "Gs 0";
   });
   const qEl = document.getElementById("card-qtd-pedidos");
   if (qEl) qEl.innerText = "0";
   _caixaState = { faturamento:0, custoEntregas:0, totalSaidas:0, totalEntradas:0,
-                  totalPix:0, totalTransf:0, totalCartao:0, totalEfetivo:0, qtdPedidos:0 };
+                  totalPix:0, totalTransf:0, totalCartao:0, totalEfetivo:0,
+                  totalNaNota:0, fundoAbertura:0, qtdPedidos:0 };
 }
 
 // =========================================

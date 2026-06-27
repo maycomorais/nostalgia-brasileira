@@ -22,7 +22,7 @@ async function notasCarregar() {
     .eq('forma_pagamento', 'NaNota')
     .order('created_at', { ascending: false });
 
-  if (error) { console.error('notas:', error); return; }
+  if (error) { console.error('notasCarregar:', error); return; }
   _notas_pedidos = data || [];
   notasAgrupar();
   notasRenderKPIs();
@@ -33,15 +33,18 @@ async function notasCarregar() {
 function notasAgrupar() {
   _notas_clientes = {};
   for (const p of _notas_pedidos) {
-    const tel  = p.cliente_telefone || 'sem-tel';
-    const nome = p.cliente_nome     || 'Cliente';
-    if (!_notas_clientes[tel]) {
-      _notas_clientes[tel] = { nome, telefone: tel === 'sem-tel' ? '' : tel, pedidos: [], total: 0, quitado: 0 };
+    const tel  = (p.cliente_telefone || '').trim();
+    const nome = (p.cliente_nome     || 'Cliente').trim();
+    // Chave única: telefone limpo; sem telefone, usa nome normalizado para não misturar clientes diferentes
+    const chave = tel || ('nome:' + nome.toLowerCase().replace(/\s+/g, '_'));
+    if (!_notas_clientes[chave]) {
+      _notas_clientes[chave] = { nome, telefone: tel, pedidos: [], total: 0, quitado: 0 };
     }
-    const quitado = (p.obs_pagamento || '').includes('[QUITADO]');
-    _notas_clientes[tel].pedidos.push({ ...p, quitado });
-    if (!quitado) _notas_clientes[tel].total += p.total_geral || 0;
-    else          _notas_clientes[tel].quitado += p.total_geral || 0;
+    const obs_norm = (p.obs_pagamento || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const quitado = obs_norm.includes('[quitado');
+    _notas_clientes[chave].pedidos.push({ ...p, quitado });
+    if (!quitado) _notas_clientes[chave].total += p.total_geral || 0;
+    else          _notas_clientes[chave].quitado += p.total_geral || 0;
   }
 }
 
@@ -70,7 +73,7 @@ function notasRenderLista() {
   if (!cont) return;
 
   const busca = (document.getElementById('notas-busca')?.value || '').toLowerCase().trim();
-  let clientes = Object.entries(_notas_clientes).map(([tel, c]) => ({ tel, ...c }));
+  let clientes = Object.entries(_notas_clientes).map(([chave, c]) => ({ chave, ...c }));
 
   // Filtro status
   if (_notas_filtro === 'pendente') clientes = clientes.filter(c => c.total > 0);
@@ -93,11 +96,12 @@ function notasRenderLista() {
     const quitados  = c.pedidos.filter(p => p.quitado);
     const temAberto = c.total > 0;
 
+    const chaveSanitizada = c.chave.replace(/[^a-zA-Z0-9]/g, '');
     return `
     <div style="background:#fff;border-radius:14px;border:1.5px solid ${temAberto ? '#fca5a5' : '#bbf7d0'};margin-bottom:12px;overflow:hidden">
       <!-- Cabeçalho do cliente -->
       <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px;cursor:pointer;background:${temAberto ? '#fff5f5' : '#f0fdf4'}"
-           onclick="notasToggleCliente('${c.tel}')">
+           onclick="notasToggleCliente('${chaveSanitizada}')">
         <div>
           <div style="font-weight:800;font-size:0.95rem;color:#111">${c.nome}</div>
           <div style="font-size:0.78rem;color:#6b7280;margin-top:2px">${c.telefone || 'Sem telefone'} · ${c.pedidos.length} pedido(s)</div>
@@ -112,7 +116,7 @@ function notasRenderLista() {
       </div>
 
       <!-- Detalhe (pedidos) — oculto por padrão -->
-      <div id="notas-det-${c.tel.replace(/\D/g,'')}" style="display:none;padding:0 16px 14px">
+      <div id="notas-det-${chaveSanitizada}" style="display:none;padding:0 16px 14px">
         ${abertos.length > 0 ? `
         <div style="margin-top:12px">
           <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:#dc2626;letter-spacing:.5px;margin-bottom:6px">
@@ -121,11 +125,11 @@ function notasRenderLista() {
           ${abertos.map(p => _notasPedidoRow(p, false)).join('')}
         </div>
         <div style="display:flex;gap:8px;margin-top:12px">
-          <button onclick="notasQuitarTodos('${c.tel}')"
+          <button onclick="notasQuitarTodos('${chaveSanitizada}')"
             style="flex:2;padding:10px;background:#16a34a;color:#fff;border:none;border-radius:9px;font-weight:700;cursor:pointer;font-size:0.85rem">
             ✅ Quitar tudo — Gs ${Math.round(c.total).toLocaleString('es-PY')}
           </button>
-          <button onclick="notasImprimirConta('${c.tel}')"
+          <button onclick="notasImprimirConta('${chaveSanitizada}')"
             style="flex:1;padding:10px;background:#f3f4f6;color:#374151;border:1.5px solid #e5e7eb;border-radius:9px;font-weight:600;cursor:pointer;font-size:0.85rem">
             🖨️ Imprimir
           </button>
@@ -143,9 +147,8 @@ function notasRenderLista() {
   }).join('');
 }
 
-function notasToggleCliente(tel) {
-  const id  = 'notas-det-' + tel.replace(/\D/g, '');
-  const el  = document.getElementById(id);
+function notasToggleCliente(chaveSanitizada) {
+  const el = document.getElementById('notas-det-' + chaveSanitizada);
   if (!el) return;
   el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
@@ -179,26 +182,47 @@ async function notasQuitarPedido(pedidoId, event) {
   const ok = confirm('Marcar este pedido como QUITADO?');
   if (!ok) return;
 
-  // Marca no obs_pagamento adicionando [QUITADO] e a data
   const dataHora = new Date().toLocaleString('es-PY');
+
   const { error } = await supa
     .from('pedidos')
     .update({ obs_pagamento: `[QUITADO em ${dataHora}]` })
     .eq('id', pedidoId);
 
-  if (error) { alert('Erro ao quitar: ' + error.message); return; }
+  if (error) {
+    alert('Erro ao quitar: ' + error.message);
+    return;
+  }
 
-  // Atualiza local
+  // Atualiza local e re-renderiza
   const p = _notas_pedidos.find(x => x.id === pedidoId);
   if (p) p.obs_pagamento = `[QUITADO em ${dataHora}]`;
   notasAgrupar();
   notasRenderKPIs();
   notasRenderLista();
+
+  // Registra entrada no caixa
+  if (_sessaoCaixaAtiva?.id && p) {
+    await salvarMovimentacaoCaixa({
+      tipo:      'suprimento',
+      valor:     p.total_geral || 0,
+      descricao: `Quitação nota — pedido #${pedidoId}`,
+      sessao_id: _sessaoCaixaAtiva.id,
+    });
+  }
 }
 
-async function notasQuitarTodos(tel) {
-  const c = _notas_clientes[tel];
-  if (!c) return;
+// Helper: busca entrada do _notas_clientes pela chave sanitizada
+function _notasClientePorId(chaveSanitizada) {
+  return Object.entries(_notas_clientes).find(
+    ([chave]) => chave.replace(/[^a-zA-Z0-9]/g, '') === chaveSanitizada
+  );
+}
+
+async function notasQuitarTodos(chaveSanitizada) {
+  const entry = _notasClientePorId(chaveSanitizada);
+  if (!entry) return;
+  const [chave, c] = entry;
   const abertos = c.pedidos.filter(p => !p.quitado);
   if (!abertos.length) return;
 
@@ -215,7 +239,6 @@ async function notasQuitarTodos(tel) {
 
   if (error) { alert('Erro ao quitar: ' + error.message); return; }
 
-  // Atualiza local
   for (const p of _notas_pedidos) {
     if (ids.includes(p.id)) p.obs_pagamento = `[QUITADO em ${dataHora}]`;
   }
@@ -223,11 +246,10 @@ async function notasQuitarTodos(tel) {
   notasRenderKPIs();
   notasRenderLista();
 
-  // Registra movimentação de caixa como entrada
   if (_sessaoCaixaAtiva?.id) {
     await salvarMovimentacaoCaixa({
-      tipo: 'entrada',
-      valor: c.total,
+      tipo:      'suprimento',
+      valor:     c.total,
       descricao: `Quitação nota — ${c.nome}`,
       sessao_id: _sessaoCaixaAtiva.id,
     });
@@ -235,9 +257,10 @@ async function notasQuitarTodos(tel) {
 }
 
 // ── IMPRIMIR CONTA ────────────────────────────────────────────
-function notasImprimirConta(tel) {
-  const c = _notas_clientes[tel];
-  if (!c) return;
+function notasImprimirConta(chaveSanitizada) {
+  const entry = _notasClientePorId(chaveSanitizada);
+  if (!entry) return;
+  const [, c] = entry;
   const abertos = c.pedidos.filter(p => !p.quitado);
 
   const linhasPedidos = abertos.map(p => {
