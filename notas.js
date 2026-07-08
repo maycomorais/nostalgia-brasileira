@@ -176,17 +176,65 @@ function _notasPedidoRow(p, quitado) {
   </div>`;
 }
 
-// ── QUITAR ────────────────────────────────────────────────────
+// ============================================================
+//  QUITAR PEDIDO INDIVIDUAL
+// ============================================================
+
+function _notasModalFormaPagamento() {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:16px;padding:24px;max-width:360px;width:100%;">
+        <h3 style="margin-bottom:16px;font-size:1.1rem;">💵 Escolha a forma de pagamento</h3>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          ${['Efetivo','Cartao','Pix','Transferencia','QrPy'].map(m =>
+            `<button data-forma="${m}" style="padding:12px;border:2px solid #e0e0e0;border-radius:8px;background:#f9f9f9;cursor:pointer;font-weight:600;font-size:0.95rem;text-align:left;">
+              ${m}
+            </button>`
+          ).join('')}
+        </div>
+        <button id="cancel-quit" style="margin-top:12px;width:100%;padding:10px;background:#f0f0f0;border:none;border-radius:8px;cursor:pointer;font-weight:600;">Cancelar</button>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    overlay.querySelectorAll('[data-forma]').forEach(btn => {
+      btn.onclick = () => {
+        const forma = btn.dataset.forma;
+        overlay.remove();
+        resolve(forma);
+      };
+    });
+    overlay.querySelector('#cancel-quit').onclick = () => {
+      overlay.remove();
+      resolve(null);
+    };
+  });
+}
+
 async function notasQuitarPedido(pedidoId, event) {
   if (event) event.stopPropagation();
+
+  // 1. Verifica se há caixa aberto
+  if (!_sessaoCaixaAtiva) {
+    alert('⚠️ Não há caixa aberto. Abra o caixa antes de quitar uma nota.');
+    return;
+  }
+
   const ok = confirm('Marcar este pedido como QUITADO?');
   if (!ok) return;
 
+  // 2. Escolhe a forma de pagamento
+  const formaPag = await _notasModalFormaPagamento();
+  if (!formaPag) return; // cancelou
+
   const dataHora = new Date().toLocaleString('es-PY');
 
+  // 3. Atualiza o pedido
   const { error } = await supa
     .from('pedidos')
-    .update({ obs_pagamento: `[QUITADO em ${dataHora}]` })
+    .update({ obs_pagamento: `[QUITADO em ${dataHora} - Forma: ${formaPag}]` })
     .eq('id', pedidoId);
 
   if (error) {
@@ -194,22 +242,32 @@ async function notasQuitarPedido(pedidoId, event) {
     return;
   }
 
-  // Atualiza local e re-renderiza
+  // 4. Busca o pedido para obter o valor total
   const p = _notas_pedidos.find(x => x.id === pedidoId);
-  if (p) p.obs_pagamento = `[QUITADO em ${dataHora}]`;
+  if (!p) {
+    alert('Pedido não encontrado.');
+    return;
+  }
+
+  // 5. Registra a movimentação no caixa usando a nova função
+  const usuario_email = document.getElementById('user-email')?.innerText || 'admin';
+  const sucesso = await registrarMovimentacaoCaixa({
+    tipo: 'entrada', // ou 'suprimento', mas entrada é mais adequado
+    valor: p.total_geral || 0,
+    descricao: `Quitação de nota - Pedido #${pedidoId} - Forma: ${formaPag}`,
+    usuario_email,
+    sessao_id: _sessaoCaixaAtiva.id,
+    forma_pagamento: formaPag
+  });
+
+  if (!sucesso) {
+    alert('⚠️ Pedido quitado, mas houve erro ao registrar no caixa. Verifique manualmente.');
+  }
+
+  // 6. Atualiza a lista local e UI
   notasAgrupar();
   notasRenderKPIs();
   notasRenderLista();
-
-  // Registra entrada no caixa
-  if (_sessaoCaixaAtiva?.id && p) {
-    await salvarMovimentacaoCaixa({
-      tipo:      'suprimento',
-      valor:     p.total_geral || 0,
-      descricao: `Quitação nota — pedido #${pedidoId}`,
-      sessao_id: _sessaoCaixaAtiva.id,
-    });
-  }
 }
 
 // Helper: busca entrada do _notas_clientes pela chave sanitizada
@@ -219,6 +277,9 @@ function _notasClientePorId(chaveSanitizada) {
   );
 }
 
+// ============================================================
+//  QUITAR TODOS OS PEDIDOS DE UM CLIENTE
+// ============================================================
 async function notasQuitarTodos(chaveSanitizada) {
   const entry = _notasClientePorId(chaveSanitizada);
   if (!entry) return;
@@ -226,34 +287,55 @@ async function notasQuitarTodos(chaveSanitizada) {
   const abertos = c.pedidos.filter(p => !p.quitado);
   if (!abertos.length) return;
 
+  // 1. Verifica caixa aberto
+  if (!_sessaoCaixaAtiva) {
+    alert('⚠️ Não há caixa aberto. Abra o caixa antes de quitar.');
+    return;
+  }
+
   const ok = confirm(`Quitar TODOS os pedidos de ${c.nome}?\nTotal: Gs ${Math.round(c.total).toLocaleString('es-PY')}`);
   if (!ok) return;
+
+  // 2. Escolhe forma de pagamento
+  const formaPag = await _notasModalFormaPagamento();
+  if (!formaPag) return;
 
   const dataHora = new Date().toLocaleString('es-PY');
   const ids = abertos.map(p => p.id);
 
+  // 3. Atualiza todos os pedidos
   const { error } = await supa
     .from('pedidos')
-    .update({ obs_pagamento: `[QUITADO em ${dataHora}]` })
+    .update({ obs_pagamento: `[QUITADO em ${dataHora} - Forma: ${formaPag}]` })
     .in('id', ids);
 
-  if (error) { alert('Erro ao quitar: ' + error.message); return; }
+  if (error) {
+    alert('Erro ao quitar: ' + error.message);
+    return;
+  }
 
+  // 4. Registra uma única movimentação com o total
+  const usuario_email = document.getElementById('user-email')?.innerText || 'admin';
+  const sucesso = await registrarMovimentacaoCaixa({
+    tipo: 'entrada',
+    valor: c.total,
+    descricao: `Quitação em lote - Cliente ${c.nome} (${ids.length} pedidos) - Forma: ${formaPag}`,
+    usuario_email,
+    sessao_id: _sessaoCaixaAtiva.id,
+    forma_pagamento: formaPag
+  });
+
+  if (!sucesso) {
+    alert('⚠️ Pedidos quitados, mas houve erro ao registrar no caixa. Verifique manualmente.');
+  }
+
+  // 5. Atualiza UI
   for (const p of _notas_pedidos) {
-    if (ids.includes(p.id)) p.obs_pagamento = `[QUITADO em ${dataHora}]`;
+    if (ids.includes(p.id)) p.obs_pagamento = `[QUITADO em ${dataHora} - Forma: ${formaPag}]`;
   }
   notasAgrupar();
   notasRenderKPIs();
   notasRenderLista();
-
-  if (_sessaoCaixaAtiva?.id) {
-    await salvarMovimentacaoCaixa({
-      tipo:      'suprimento',
-      valor:     c.total,
-      descricao: `Quitação nota — ${c.nome}`,
-      sessao_id: _sessaoCaixaAtiva.id,
-    });
-  }
 }
 
 // ── IMPRIMIR CONTA ────────────────────────────────────────────
@@ -311,4 +393,44 @@ function notasImprimirConta(chaveSanitizada) {
   </body></html>`);
   win.document.close();
   setTimeout(() => win.print(), 500);
+}
+
+/**
+ * Exibe um modal para escolher a forma de pagamento da quitação.
+ * @returns {Promise<string|null>} - retorna a forma escolhida ou null se cancelado.
+ */
+function _notasModalFormaPagamento() {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:99999;
+      display:flex; align-items:center; justify-content:center; padding:20px;
+    `;
+    overlay.innerHTML = `
+      <div style="background:#fff; border-radius:16px; padding:24px; max-width:360px; width:100%;">
+        <h3 style="margin-bottom:16px; font-size:1.1rem;">💵 Forma de pagamento para quitação</h3>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          ${['Efetivo','Cartao','Pix','Transferencia','QrPy','QrCelular'].map(m =>
+            `<button data-forma="${m}" style="padding:12px; border:2px solid #e0e0e0; border-radius:8px; background:#f9f9f9; cursor:pointer; font-weight:600; font-size:0.95rem; text-align:left;">
+              ${m}
+            </button>`
+          ).join('')}
+        </div>
+        <button id="cancel-quit" style="margin-top:12px; width:100%; padding:10px; background:#f0f0f0; border:none; border-radius:8px; cursor:pointer; font-weight:600;">Cancelar</button>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    overlay.querySelectorAll('[data-forma]').forEach(btn => {
+      btn.onclick = () => {
+        const forma = btn.dataset.forma;
+        overlay.remove();
+        resolve(forma);
+      };
+    });
+    overlay.querySelector('#cancel-quit').onclick = () => {
+      overlay.remove();
+      resolve(null);
+    };
+  });
 }

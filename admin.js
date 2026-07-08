@@ -1798,16 +1798,12 @@ async function calcularFinanceiro() {
   // ── 2. Se não houver sessão aberta ───────────────────────────────
   if (!_sessaoCaixaAtiva) {
     if (ehGestor) {
-      // Gestor vê o financeiro pelo filtro de datas, sem precisar de caixa aberto
-      // Usa hoje como intervalo padrão se os campos estiverem vazios
       if (!elInicio.value || !elFim.value) {
         const hoje = new Date().toISOString().split("T")[0];
         if (!elInicio.value) elInicio.value = hoje;
         if (!elFim.value)    elFim.value    = hoje;
       }
-      // Continua normalmente abaixo — _sessaoCaixaAtiva será null e tratado
     } else {
-      // Funcionário precisa de caixa aberto
       _exibirAlertaAberturaCaixa();
       return;
     }
@@ -1818,11 +1814,9 @@ async function calcularFinanceiro() {
   let utcI, utcF;
 
   if (ehGestor && elInicio.value && elFim.value) {
-    // Gestor: usa sempre o filtro de datas da tela
     utcI = new Date(new Date(elInicio.value + "T00:00:00").getTime() + _tz).toISOString();
     utcF = new Date(new Date(elFim.value   + "T23:59:59").getTime() + _tz).toISOString();
   } else if (_sessaoCaixaAtiva) {
-    // Funcionário com sessão: usa intervalo da sessão
     const sessaoInicio = _sessaoCaixaAtiva.aberto_em;
     const sessaoFim    = _sessaoCaixaAtiva.fechado_em || new Date().toISOString();
     utcI = sessaoInicio;
@@ -1830,7 +1824,6 @@ async function calcularFinanceiro() {
     if (!elInicio.value) elInicio.value = new Date(sessaoInicio).toISOString().split("T")[0];
     if (!elFim.value)    elFim.value    = new Date(sessaoFim).toISOString().split("T")[0];
   } else {
-    // Fallback: hoje
     const hoje = new Date().toISOString().split("T")[0];
     utcI = new Date(new Date(hoje + "T00:00:00").getTime() + _tz).toISOString();
     utcF = new Date(new Date(hoje + "T23:59:59").getTime() + _tz).toISOString();
@@ -1857,7 +1850,6 @@ async function calcularFinanceiro() {
 
   if (tipoFiltro !== "todos") query = query.eq("forma_pagamento", tipoFiltro);
 
-  // Funcionário: filtra apenas pedidos do próprio caixa via garcom_id (= _perfilId)
   if (!ehGestor && _perfilId) query = query.eq("garcom_id", _perfilId);
 
   const { data: pedidos } = await query;
@@ -1879,7 +1871,6 @@ async function calcularFinanceiro() {
     const { data: caixaData } = await caixaQuery;
     caixa = caixaData || [];
   } else if (ehGestor) {
-    // Gestor sem sessão ativa: carrega movimentações pelo intervalo de datas
     const { data: caixaData } = await supa
       .from("movimentacoes_caixa")
       .select("*")
@@ -1888,10 +1879,9 @@ async function calcularFinanceiro() {
     caixa = caixaData || [];
   }
 
-  // Verifica bloqueio de caixa (sangria limite) — só se houver sessão
   if (_sessaoCaixaAtiva) _verificarBloqueioCaixa(emailAtual);
 
-  // ── 6. Cálculos (inalterado) ──────────────────────────────────────
+  // ── 6. CÁLCULOS (CORRIGIDO) ──────────────────────────────────────
   const safeNum = (v) => {
     if (!v) return 0;
     if (typeof v === "number") return v;
@@ -1900,19 +1890,41 @@ async function calcularFinanceiro() {
   const fmt = (n) => "Gs " + n.toLocaleString("es-PY");
 
   let faturamento = 0, totalPix = 0, totalTransf = 0, totalCartao = 0, totalEfetivo = 0, totalNaNota = 0;
+  let totalQrCelular = 0; // ← renomeie para QqMaquina se preferir
   let custoEntregas = 0, qtdPedidos = 0;
   const motoMap = {};
 
   peds.forEach((p) => {
+    const pag = (p.forma_pagamento || "").toLowerCase();
+    const isNaNota = pag === "nanota";
+    const isQuitado = (p.obs_pagamento || "").toLowerCase().includes("[quitado");
+
+    // ═══ PULAR: NaNota não quitado ou Mensalista ═══
+    if ((isNaNota && !isQuitado) || pag === "mensalista") {
+      // Não soma ao faturamento nem conta como pedido
+      return;
+    }
+
     const val = safeNum(p.total_geral);
     faturamento += val;
     qtdPedidos++;
-    const pag = (p.forma_pagamento || "").toLowerCase();
-    if (pag.includes("pix"))                                      totalPix     += val;
-    else if (pag.includes("transfer"))                            totalTransf  += val;
-    else if (pag.includes("cartao") || pag.includes("cartão"))   totalCartao  += val;
-    else if (pag.includes("efetivo") || pag.includes("dinheiro")) totalEfetivo += val;
-    else if (pag === "nanota")                                     totalNaNota  += val;
+
+    // Acumula por método
+    if (pag.includes("pix")) {
+      totalPix += val;
+    } else if (pag.includes("transfer")) {
+      totalTransf += val;
+    } else if (pag.includes("cartao") || pag.includes("cartão")) {
+      totalCartao += val;
+    } else if (pag.includes("efetivo") || pag.includes("dinheiro")) {
+      totalEfetivo += val;
+    } else if (isNaNota && isQuitado) {
+      totalNaNota += val; // só quitados
+    } else if (pag.includes("qr") || pag === "qr celular" || pag === "qqmaquina") {
+      totalQrCelular += val;
+    }
+
+    // Custo entregas (somente delivery)
     if (p.tipo_entrega === "delivery") {
       const taxa = safeNum(p.frete_motoboy) || TAXA_MOTOBOY || 0;
       custoEntregas += taxa;
@@ -1934,12 +1946,12 @@ async function calcularFinanceiro() {
     if (c.tipo === "suprimento" || c.tipo === "abertura" || c.tipo === "entrada") totalEntradas += v;
   });
 
-  // Fundo de abertura: soma no efetivo para refletir o dinheiro físico real na gaveta
   const fundoAbertura = safeNum(_sessaoCaixaAtiva?.valor_abertura);
   totalEfetivo += fundoAbertura;
 
   _caixaState = { faturamento, custoEntregas, totalSaidas, totalEntradas,
-                  totalPix, totalTransf, totalCartao, totalEfetivo, totalNaNota, qtdPedidos, totalSangria, fundoAbertura };
+                  totalPix, totalTransf, totalCartao, totalEfetivo, totalNaNota,
+                  totalQrCelular, qtdPedidos, totalSangria, fundoAbertura };
 
   const lucro = faturamento + totalEntradas - custoEntregas - totalSaidas;
   const setV  = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v; };
@@ -1952,6 +1964,7 @@ async function calcularFinanceiro() {
   setV("total-cartao",      fmt(totalCartao));
   setV("total-efetivo",     fmt(totalEfetivo));
   setV("total-nanota",      fmt(totalNaNota));
+  setV("total-qr",          fmt(totalQrCelular)); // id do elemento deve ser "total-qr"
   setV("total-fundo-abertura", fmt(fundoAbertura));
   setV("card-qtd-pedidos",  qtdPedidos);
   setV("card-ticket-medio", fmt(qtdPedidos > 0 ? faturamento / qtdPedidos : 0));
@@ -1972,7 +1985,7 @@ async function calcularFinanceiro() {
     }
   }
 
-  // Tabelas de despesas e motoboys (código original preservado)
+  // ── Tabelas de despesas e motoboys (mantido) ──────────────────────
   const tbD = document.getElementById("lista-despesas-caixa");
   if (tbD) {
     const despesas = (caixa || []).filter((c) => c.tipo === "despesa");
@@ -2585,79 +2598,102 @@ async function salvarMovimentacaoCaixa() {
 
 async function fecharCaixaResumo() {
   if (!_sessaoCaixaAtiva) {
-    alert("Nenhum caixa aberto para fechar.");
+    alert('Nenhum caixa aberto para fechar.');
     return;
   }
 
-  if (!confirm("Fechar o caixa desta sessão?\nIsso encerra a sessão e registra o fechamento.")) return;
-
-  await calcularFinanceiro(); // garante que _caixaState está atualizado
-  const s   = _caixaState;
-  const fmt = (n) => "Gs " + n.toLocaleString("es-PY");
+  // Recalcula para garantir dados atualizados
+  await calcularFinanceiro();
+  const s = _caixaState;
+  const fmt = (n) => 'Gs ' + n.toLocaleString('es-PY');
   const lucro = s.faturamento + s.totalEntradas - s.custoEntregas - s.totalSaidas;
-
-  try {
-    // 1. Marca a sessão como fechada
-    await supa
-      .from("sessoes_caixa")
-      .update({
-        fechado_em:       new Date().toISOString(),
-        valor_fechamento: lucro,
-        observacao:       `Fat: ${fmt(s.faturamento)} | Res: ${fmt(lucro)}`,
-      })
-      .eq("id", _sessaoCaixaAtiva.id);
-
-    // 2. Registra movimentação de fechamento vinculada à sessão
-    await supa.from("movimentacoes_caixa").insert([{
-      tipo:          "fechamento",
-      valor:         lucro,
-      descricao:     `Fechamento ${new Date().toLocaleDateString("pt-BR")} | Fat: ${fmt(s.faturamento)} | Res: ${fmt(lucro)}`,
-      usuario_email: document.getElementById("user-email")?.innerText || "admin",
-      sessao_id:     _sessaoCaixaAtiva.id,
-    }]);
-  } catch (e) {
-    console.warn("Aviso fechamento:", e.message);
-  }
-
-  // Dinheiro físico real = fundo de abertura + vendas em efetivo + quitações NaNota - sangrias - despesas pagas em dinheiro
   const dinheiroCaixa = s.totalEfetivo + s.totalEntradas - s.totalSaidas;
 
-  alert(`📊 FECHAMENTO DA SESSÃO #${_sessaoCaixaAtiva.id}
-═══════════════════════════
-Faturamento Total: ${fmt(s.faturamento)}
+  // Remove modal antigo se existir
+  const oldModal = document.getElementById('modal-fechamento-caixa');
+  if (oldModal) oldModal.remove();
 
-💰 Por Método:
-  💵 Dinheiro:      ${fmt(s.totalEfetivo)}
-  📱 Pix:           ${fmt(s.totalPix)}
-  💳 Cartão:        ${fmt(s.totalCartao)}
-  🏦 Transferência: ${fmt(s.totalTransf)}
-  📋 Na Nota:       ${fmt(s.totalNaNota)}
+  // Cria o modal
+  const modal = document.createElement('div');
+  modal.id = 'modal-fechamento-caixa';
+  modal.style.cssText = `
+    position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:99999;
+    display:flex; align-items:center; justify-content:center; padding:20px;
+  `;
+  modal.innerHTML = `
+    <div style="background:#fff; border-radius:20px; width:100%; max-width:480px; max-height:90vh; overflow-y:auto; padding:24px; box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <h3 style="margin:0; font-size:1.2rem;">📊 Fechamento de Caixa</h3>
+        <button onclick="this.closest('#modal-fechamento-caixa').remove()" style="background:none; border:none; font-size:1.5rem; cursor:pointer;">&times;</button>
+      </div>
+      <div style="font-family:monospace; font-size:0.9rem; line-height:1.8;">
+        <div style="display:flex; justify-content:space-between;"><span>Faturamento Total:</span><strong>${fmt(s.faturamento)}</strong></div>
+        <hr>
+        <div style="font-weight:700; margin-top:6px;">💰 Por Método:</div>
+        <div style="display:flex; justify-content:space-between; padding-left:12px;"><span>💵 Dinheiro:</span>${fmt(s.totalEfetivo)}</div>
+        <div style="display:flex; justify-content:space-between; padding-left:12px;"><span>📱 Pix:</span>${fmt(s.totalPix)}</div>
+        <div style="display:flex; justify-content:space-between; padding-left:12px;"><span>💳 Cartão:</span>${fmt(s.totalCartao)}</div>
+        <div style="display:flex; justify-content:space-between; padding-left:12px;"><span>🏦 Transferência:</span>${fmt(s.totalTransf)}</div>
+        <div style="display:flex; justify-content:space-between; padding-left:12px;"><span>📱 QR Celular:</span>${fmt(s.totalQrCelular || 0)}</div>
+        <div style="display:flex; justify-content:space-between; padding-left:12px;"><span>📋 Na Nota (quitado):</span>${fmt(s.totalNaNota)}</div>
+        <hr>
+        <div style="display:flex; justify-content:space-between;"><span>📦 Pedidos:</span>${s.qtdPedidos}</div>
+        <div style="display:flex; justify-content:space-between;"><span>🏍️ Custo Entregas:</span>${fmt(s.custoEntregas)}</div>
+        <div style="display:flex; justify-content:space-between;"><span>💸 Saídas (despesas):</span>${fmt(s.totalSaidas)}</div>
+        <div style="display:flex; justify-content:space-between;"><span>➕ Entradas (incl. fundo):</span>${fmt(s.totalEntradas)}</div>
+        <div style="display:flex; justify-content:space-between; padding-left:12px;"><span>└ Fundo de abertura:</span>${fmt(s.fundoAbertura)}</div>
+        <hr>
+        <div style="display:flex; justify-content:space-between; font-size:1.1rem; font-weight:800; color:#1a7a2e;"><span>💵 RESULTADO:</span>${fmt(lucro)}</div>
+        <div style="display:flex; justify-content:space-between; font-size:1rem; font-weight:700; color:#2980b9; margin-top:6px;"><span>🪙 DINHEIRO NA GAVETA:</span>${fmt(dinheiroCaixa)}</div>
+      </div>
+      <div style="display:flex; gap:10px; margin-top:20px;">
+        <button onclick="window.print()" style="flex:1; padding:12px; background:#1a7a2e; color:#fff; border:none; border-radius:8px; font-weight:700; cursor:pointer;">🖨️ Imprimir</button>
+        <button onclick="fecharCaixaConfirmar()" style="flex:1; padding:12px; background:#e74c3c; color:#fff; border:none; border-radius:8px; font-weight:700; cursor:pointer;">✅ Fechar Caixa</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
 
-📦 Pedidos: ${s.qtdPedidos}
-🏍️ Custo Entregas: ${fmt(s.custoEntregas)}
-💸 Saídas: ${fmt(s.totalSaidas)}
-➕ Entradas (incl. fundo): ${fmt(s.totalEntradas)}
-  └ Fundo de abertura: ${fmt(s.fundoAbertura)}
-═══════════════════════════
-💵 RESULTADO: ${fmt(lucro)}
-═══════════════════════════
-🪙 DINHEIRO NA GAVETA: ${fmt(dinheiroCaixa)}
-Sessão encerrada!`);
+  // Função de confirmação (será chamada pelo botão)
+  window.fecharCaixaConfirmar = async function() {
+    try {
+      await supa
+        .from('sessoes_caixa')
+        .update({
+          fechado_em: new Date().toISOString(),
+          valor_fechamento: lucro,
+          observacao: `Fat: ${fmt(s.faturamento)} | Res: ${fmt(lucro)}`
+        })
+        .eq('id', _sessaoCaixaAtiva.id);
 
-  // Limpa estado
-  _sessaoCaixaAtiva = null;
-  // Atualiza mini-painel do PDV
-  if (typeof pdvCarregarPainelCaixa === "function") pdvCarregarPainelCaixa();
-  ["card-faturamento","card-custo-moto","card-lucro","total-pix","total-transf",
-   "total-cartao","total-efetivo","total-nanota","total-fundo-abertura","card-ticket-medio"].forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.innerText = "Gs 0";
-  });
-  const qEl = document.getElementById("card-qtd-pedidos");
-  if (qEl) qEl.innerText = "0";
-  _caixaState = { faturamento:0, custoEntregas:0, totalSaidas:0, totalEntradas:0,
-                  totalPix:0, totalTransf:0, totalCartao:0, totalEfetivo:0,
-                  totalNaNota:0, fundoAbertura:0, qtdPedidos:0 };
+      await registrarMovimentacaoCaixa({
+        tipo: 'fechamento',
+        valor: lucro,
+        descricao: `Fechamento ${new Date().toLocaleDateString('pt-BR')} | Fat: ${fmt(s.faturamento)} | Res: ${fmt(lucro)}`,
+        usuario_email: document.getElementById('user-email')?.innerText || 'admin',
+        sessao_id: _sessaoCaixaAtiva.id
+      });
+
+    } catch(e) {
+      console.warn('Aviso fechamento:', e.message);
+    }
+
+    _sessaoCaixaAtiva = null;
+    pdvCarregarPainelCaixa();
+    ['card-faturamento','card-custo-moto','card-lucro','total-pix','total-transf',
+     'total-cartao','total-efetivo','total-nanota','total-fundo-abertura','card-ticket-medio'
+    ].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.innerText = 'Gs 0';
+    });
+    const qEl = document.getElementById('card-qtd-pedidos');
+    if (qEl) qEl.innerText = '0';
+    _caixaState = { faturamento:0, custoEntregas:0, totalSaidas:0, totalEntradas:0,
+                    totalPix:0, totalTransf:0, totalCartao:0, totalEfetivo:0,
+                    totalNaNota:0, totalQrCelular:0, fundoAbertura:0, qtdPedidos:0 };
+    document.getElementById('modal-fechamento-caixa')?.remove();
+    alert('✅ Caixa fechado com sucesso!');
+  };
 }
 
 // =========================================
@@ -10106,41 +10142,42 @@ async function salvarPedidoBalcao() {
 
   // ── Mensalista: desconta saldo financeiro (e kg se tiver) ─────
   if (pag === "Mensalista" && _pdvMensalistaSel) {
-    const pm = _pdvMensalistaSel;
-    const totalVenda = subtotalLiquido; // sem frete para mensalista
-    const isKg = (pm.produto_nome || "").toLowerCase().includes("kg");
-    // Desconta valor
-    const novoValorRestante = Math.max(0, Math.round((pm.valor_restante || 0) - totalVenda));
-    // Desconta kg se o carrinho tiver item kg do plano dele
-    let novaQtdRestante = pm.quantidade_restante;
-    if (isKg) {
-      const totalGramas = novosItens.filter(i => i._isKg).reduce((s, i) => s + (i.peso_gramas || 0), 0);
-      // peso_gramas já está em gramas inteiras = unidades internas (×1000)
-      novaQtdRestante = Math.max(0, pm.quantidade_restante - totalGramas);
-    } else {
-      const totalUn = novosItens.filter(i => !i._isKg).reduce((s, i) => s + (i.qtd || 1), 0);
-      novaQtdRestante = Math.max(0, pm.quantidade_restante - totalUn);
-    }
-    await supa.from("planos_mensalistas")
-      .update({ valor_restante: novoValorRestante, quantidade_restante: novaQtdRestante })
-      .eq("id", pm.id);
-    // Registrar entrega no histórico
-    await supa.from("mensalista_entregas").insert([{
-      plano_id: pm.id,
-      cliente_id: pm.clientes?.id || null,
-      produto_nome: pm.produto_nome,
-      quantidade: isKg
-        ? novosItens.filter(i => i._isKg).reduce((s, i) => s + (i.peso_gramas || 0), 0)
-        : novosItens.filter(i => !i._isKg).reduce((s, i) => s + (i.qtd || 1), 0),
-      observacoes: `PDV #${novoPedido.id}`,
-      valor_extras: Math.round(totalVenda),
-    }]);
-    // Atualiza cache local
-    _pdvMensalistaSel.valor_restante   = novoValorRestante;
-    _pdvMensalistaSel.quantidade_restante = novaQtdRestante;
-    // Venda mensalista NÃO entra no financeiro — pula movimentacao_caixa
-    _pdvPularMovimentacao = true;
+  const pm = _pdvMensalistaSel;
+  const totalVenda = subtotalLiquido; // sem frete para mensalista
+  const isKg = (pm.produto_nome || "").toLowerCase().includes("kg");
+  // Desconta valor (permite negativo)
+  const novoValorRestante = Math.round((pm.valor_restante || 0) - totalVenda);
+  // Desconta kg se o carrinho tiver item kg do plano dele
+  let novaQtdRestante = pm.quantidade_restante;
+  if (isKg) {
+    const totalGramas = novosItens.filter(i => i._isKg).reduce((s, i) => s + (i.peso_gramas || 0), 0);
+    novaQtdRestante = pm.quantidade_restante - totalGramas; // pode ficar negativo
+  } else {
+    const totalUn = novosItens.filter(i => !i._isKg).reduce((s, i) => s + (i.qtd || 1), 0);
+    novaQtdRestante = pm.quantidade_restante - totalUn; // pode ficar negativo
   }
+  await supa.from("planos_mensalistas")
+    .update({ valor_restante: novoValorRestante, quantidade_restante: novaQtdRestante })
+    .eq("id", pm.id);
+  // Registrar entrega no histórico com itens_extras
+  const totalExtras = subtotalLiquido; // ou 0, tanto faz
+  await supa.from("mensalista_entregas").insert([{
+    plano_id: pm.id,
+    cliente_id: pm.clientes?.id || null,
+    produto_nome: pm.produto_nome,
+    quantidade: isKg
+      ? novosItens.filter(i => i._isKg).reduce((s, i) => s + (i.peso_gramas || 0), 0)
+      : novosItens.filter(i => !i._isKg).reduce((s, i) => s + (i.qtd || 1), 0),
+    observacoes: `PDV #${novoPedido.id}`,
+    itens_extras: novosItens.length > 0 ? novosItens : null,
+    valor_extras: Math.round(subtotalLiquido), // ou null
+  }]);
+  // Atualiza cache local
+  _pdvMensalistaSel.valor_restante   = novoValorRestante;
+  _pdvMensalistaSel.quantidade_restante = novaQtdRestante;
+  // Venda mensalista NÃO entra no financeiro — pula movimentacao_caixa
+  _pdvPularMovimentacao = true;
+}
 
   // ── Na Nota: marca o pedido com cliente vinculado ─────────────
   if (pag === "NaNota" && _pdvClienteNotaSel) {
@@ -12808,4 +12845,106 @@ async function admAceitarContrato() {
       btn.textContent = "✍️ ASSINAR E CONTINUAR";
     }
   }
+}
+
+/**
+ * Registra uma movimentação no caixa diretamente no banco, sem depender do modal.
+ * @param {Object} params
+ * @param {string} params.tipo - 'abertura','suprimento','sangria','despesa','entrada','fechamento'
+ * @param {number} params.valor
+ * @param {string} params.descricao
+ * @param {string} params.usuario_email - email do operador
+ * @param {number} params.sessao_id - ID da sessão de caixa ativa
+ * @param {string} params.forma_pagamento - opcional (ex: 'Efetivo', 'Cartao')
+ * @param {string} params.tipo_despesa - opcional (se for despesa)
+ * @param {string} params.descricao_outro - opcional
+ * @returns {Promise<boolean>}
+ */
+async function registrarMovimentacaoCaixa({ 
+  tipo, 
+  valor, 
+  descricao, 
+  usuario_email, 
+  sessao_id, 
+  forma_pagamento = null,
+  tipo_despesa = null,
+  descricao_outro = null
+}) {
+  if (!sessao_id) {
+    console.error('registrarMovimentacaoCaixa: sessao_id é obrigatório');
+    return false;
+  }
+  if (!valor || valor <= 0) {
+    console.error('registrarMovimentacaoCaixa: valor deve ser > 0');
+    return false;
+  }
+  if (!usuario_email) {
+    // tenta pegar do elemento da UI
+    usuario_email = document.getElementById('user-email')?.innerText || 'sistema';
+  }
+
+  const payload = {
+    tipo,
+    valor,
+    descricao: descricao || '',
+    usuario_email,
+    sessao_id,
+    forma_pagamento: forma_pagamento || null,
+    tipo_despesa: tipo_despesa || null,
+    descricao_outro: descricao_outro || null,
+    created_at: new Date().toISOString()
+  };
+
+  const { error } = await supa
+    .from('movimentacoes_caixa')
+    .insert([payload]);
+
+  if (error) {
+    console.error('Erro ao registrar movimentação:', error);
+    return false;
+  }
+  return true;
+}async function registrarMovimentacaoCaixa({ 
+  tipo, 
+  valor, 
+  descricao, 
+  usuario_email, 
+  sessao_id, 
+  forma_pagamento = null,
+  tipo_despesa = null,
+  descricao_outro = null
+}) {
+  if (!sessao_id) {
+    console.error('registrarMovimentacaoCaixa: sessao_id é obrigatório');
+    return false;
+  }
+  if (!valor || valor <= 0) {
+    console.error('registrarMovimentacaoCaixa: valor deve ser > 0');
+    return false;
+  }
+  if (!usuario_email) {
+    usuario_email = document.getElementById('user-email')?.innerText || 'sistema';
+  }
+
+  const payload = {
+    tipo,
+    valor,
+    descricao: descricao || '',
+    usuario_email,
+    sessao_id,
+    forma_pagamento: forma_pagamento || null,
+    tipo_despesa: tipo_despesa || null,
+    descricao_outro: descricao_outro || null,
+    created_at: new Date().toISOString()
+  };
+
+  const { error } = await supa
+    .from('movimentacoes_caixa')
+    .insert([payload]);
+
+  if (error) {
+    console.error('Erro ao registrar movimentação:', error);
+    return false;
+  }
+  return true;
 }

@@ -676,8 +676,9 @@ async function mensSalvarEntrega() {
   }
   if (qtd > p.quantidade_restante) {
     const max = isKg ? _mensIntToKg(p.quantidade_restante) + ' kg' : p.quantidade_restante + ' itens';
-    alert(t('mens.alerta_saldo_insuficiente', 'Saldo insuficiente. Máximo disponível: {qtd}.').replace('{qtd}', max));
-    return;
+    if (!confirm(`⚠️ Saldo insuficiente. Máximo disponível: ${max}\nDeseja continuar mesmo assim (ficará negativo)?`)) {
+      return;
+    }
   }
 
   // Valor total dos itens extras
@@ -691,16 +692,15 @@ async function mensSalvarEntrega() {
   // Saldo financeiro disponível após descontar o item principal
   const novoRestante       = p.quantidade_restante - qtd;
   const valorAposPlano     = Math.round(valorPorUnidade * novoRestante);
-  const novoValorRestante  = Math.max(0, valorAposPlano - Math.round(totalExtras));
+  const novoValorRestante  = valorAposPlano - Math.round(totalExtras); // PERMITE NEGATIVO
 
   // Aviso se saldo financeiro não cobrir os extras
   if (totalExtras > 0 && Math.round(totalExtras) > valorAposPlano) {
     const saldoFmt  = valorAposPlano.toLocaleString('es-PY');
     const extrasFmt = Math.round(totalExtras).toLocaleString('es-PY');
-    const continuar = confirm(
-      `⚠️ Saldo financeiro insuficiente para os itens extras.\n\nSaldo disponível após entrega: Gs ${saldoFmt}\nTotal dos extras: Gs ${extrasFmt}\n\nDeseja continuar mesmo assim?`
-    );
-    if (!continuar) return;
+    if (!confirm(`⚠️ Saldo financeiro insuficiente para os itens extras.\n\nSaldo disponível após entrega: Gs ${saldoFmt}\nTotal dos extras: Gs ${extrasFmt}\n\nDeseja continuar mesmo assim?`)) {
+      return;
+    }
   }
 
   // Salvar entrega (com itens extras em JSON)
@@ -720,7 +720,7 @@ async function mensSalvarEntrega() {
 
   if (errEnt) { alert(t('mens.erro_registrar', 'Erro ao registrar entrega: ') + errEnt.message); return; }
 
-  // Atualizar saldo no plano
+  // Atualizar saldo no plano (PERMITE NEGATIVO)
   const { error: errUp } = await supa
     .from('planos_mensalistas')
     .update({ quantidade_restante: novoRestante, valor_restante: novoValorRestante })
@@ -897,43 +897,202 @@ async function mensVerHistorico(planoId) {
 
   const entregasTotal = (data || []).reduce((s, e) => s + (e.quantidade || 0), 0);
 
-  const linhas = (data || []).map(e => {
-    const temExtras  = e.itens_extras && e.itens_extras.length > 0;
-    const valorExtra = e.valor_extras ? Math.round(e.valor_extras).toLocaleString('es-PY') : null;
-    const nomesExtras = temExtras
-      ? e.itens_extras.map(i => `${i.nome} x${i.qtd}`).join(', ')
-      : '';
-    return `
-    <tr>
-      <td style="font-size:0.8rem;color:#888;white-space:nowrap">
-        ${new Date(e.created_at).toLocaleString('es-PY', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' })}
-      </td>
-      <td style="text-align:center;font-weight:700;color:#1a7a2e">${_mensFmtQtd(e.quantidade, tipo)}</td>
-      <td style="font-size:0.8rem;color:#555">
-        ${e.observacoes || ''}
-        ${temExtras ? `<div style="margin-top:3px">
-          <span style="font-size:0.72rem;background:#eff6ff;color:#1d4ed8;border-radius:5px;padding:2px 6px;font-weight:600" title="${nomesExtras}">
-            🛒 +Gs ${valorExtra}
-          </span>
-        </div>` : (e.observacoes ? '' : '—')}
-      </td>
-      <td style="text-align:center">
-        <button onclick="mensReimprimirEntrega(${e.id}, ${planoId})"
-          style="background:#f3f4f6;color:#374151;border:none;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:0.75rem">
-          🖨️
-        </button>
-      </td>
-    </tr>`;
-  }).join('') || '<tr><td colspan="4" style="text-align:center;color:#aaa;padding:12px">' + t('mens.nenhuma_entrega', 'Nenhuma entrega registrada ainda') + '</td></tr>';
+  // Monta cards
+  let html = `
+    <div style="margin-bottom:16px; background:#f9fafb; border-radius:12px; padding:12px 16px;">
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px;">
+        <div><span style="color:#6b7280;">Cliente</span><br><b>${p.clientes?.nome || '—'}</b></div>
+        <div><span style="color:#6b7280;">Produto</span><br><b>${p.produto_nome}</b></div>
+        <div><span style="color:#6b7280;">Contratado</span><br><b>${_mensFmtQtd(p.quantidade_total, tipo)}</b></div>
+        <div><span style="color:#6b7280;">Entregue</span><br><b>${_mensFmtQtd(entregasTotal, tipo)}</b></div>
+        <div><span style="color:#6b7280;">Restante</span><br><b style="color:#1a7a2e;">${_mensFmtQtd(p.quantidade_restante, tipo)}</b></div>
+      </div>
+    </div>
+  `;
 
-  document.getElementById('mens-hist-nome').textContent        = p.clientes?.nome || '—';
-  document.getElementById('mens-hist-produto').textContent     = p.produto_nome;
+  if (!data || data.length === 0) {
+    html += `<div style="text-align:center;color:#aaa;padding:20px;">${t('mens.nenhuma_entrega', 'Nenhuma entrega registrada ainda')}</div>`;
+  } else {
+    html += `<div style="display:flex;flex-direction:column;gap:10px;">`;
+    data.forEach(e => {
+      const itensExtras = e.itens_extras || [];
+      const temExtras = itensExtras.length > 0;
+      const valorExtra = e.valor_extras ? Math.round(e.valor_extras).toLocaleString('es-PY') : null;
+      const nomesExtras = temExtras
+        ? itensExtras.map(i => `${i.nome} x${i.qtd}`).join(', ')
+        : '';
+
+      html += `
+        <div style="background:#fff; border:1.5px solid #e5e7eb; border-radius:12px; padding:14px 16px;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px;">
+            <div>
+              <div style="font-weight:700; font-size:0.9rem;">
+                ${new Date(e.created_at).toLocaleString('es-PY', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' })}
+                <span style="font-weight:400; color:#6b7280; font-size:0.8rem;">#${e.id}</span>
+              </div>
+              <div style="font-weight:700; color:#1a7a2e; font-size:1rem;">
+                ${_mensFmtQtd(e.quantidade, tipo)}
+              </div>
+              ${e.observacoes ? `<div style="font-size:0.8rem; color:#6b7280; margin-top:4px;">${e.observacoes}</div>` : ''}
+              ${temExtras ? `
+                <div style="margin-top:4px; font-size:0.8rem; background:#eff6ff; padding:4px 8px; border-radius:6px; display:inline-block;">
+                  🛒 Itens extras: ${nomesExtras} ${valorExtra ? `(+ Gs ${valorExtra})` : ''}
+                </div>
+              ` : ''}
+            </div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+              <button onclick="mensAbrirEditarEntrega(${e.id}, ${planoId})"
+                style="padding:6px 12px; background:#3498db; color:#fff; border:none; border-radius:8px; cursor:pointer; font-size:0.8rem; font-weight:600;">
+                ✏️ Editar
+              </button>
+              <button onclick="mensReimprimirEntrega(${e.id}, ${planoId})"
+                style="padding:6px 12px; background:#f3f4f6; color:#374151; border:1px solid #e5e7eb; border-radius:8px; cursor:pointer; font-size:0.8rem; font-weight:600;">
+                🖨️
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    });
+    html += `</div>`;
+  }
+
+  document.getElementById('mens-hist-nome').textContent = p.clientes?.nome || '—';
+  document.getElementById('mens-hist-produto').textContent = p.produto_nome;
   document.getElementById('mens-hist-plano-total').textContent = _mensFmtQtd(p.quantidade_total, tipo);
-  document.getElementById('mens-hist-plano-rest').textContent  = _mensFmtQtd(p.quantidade_restante, tipo);
-  document.getElementById('mens-hist-entregues').textContent   = _mensFmtQtd(entregasTotal, tipo);
-  document.getElementById('mens-hist-tbody').innerHTML         = linhas;
+  document.getElementById('mens-hist-plano-rest').textContent = _mensFmtQtd(p.quantidade_restante, tipo);
+  document.getElementById('mens-hist-entregues').textContent = _mensFmtQtd(entregasTotal, tipo);
+  document.getElementById('mens-hist-tbody').innerHTML = ''; // não usamos mais tabela
+
+  // Injetamos o conteúdo no modal
+  const modalBody = document.querySelector('#modal-mens-hist .modal-body') || document.querySelector('#modal-mens-hist > div > div');
+  if (modalBody) {
+    modalBody.innerHTML = html;
+  } else {
+    const tbody = document.getElementById('mens-hist-tbody');
+    if (tbody) tbody.innerHTML = html;
+  }
+
   const _mmh = document.getElementById('modal-mens-hist');
   if (_mmh) { _mmh.style.cssText += ';position:fixed!important;top:0;left:0;width:100%;height:100%;z-index:9999;'; _mmh.style.display = 'flex'; }
+}
+
+// ── EDITAR ENTREGA ──────────────────────────────────────────────
+let _entregaEditando = null;
+let _planoEditando = null;
+
+async function mensAbrirEditarEntrega(entregaId, planoId) {
+
+  fecharModal('modal-mens-hist');
+  const { data: entrega, error } = await supa
+    .from('mensalista_entregas')
+    .select('*')
+    .eq('id', entregaId)
+    .single();
+
+  if (error || !entrega) { alert('Erro ao buscar entrega.'); return; }
+
+  _entregaEditando = entrega;
+  _planoEditando = _mens_planos.find(p => p.id === planoId);
+  if (!_planoEditando) { alert('Plano não encontrado.'); return; }
+
+  const tipo = _mensGetTipo(_planoEditando);
+  const isKg = tipo === 'kg';
+
+  // Preencher modal de edição (reutilizamos o mesmo modal de entrada)
+  const modal = document.getElementById('modal-mens-entrega');
+  document.querySelector('#modal-mens-entrega h3').textContent = '✏️ Editar Entrega';
+  document.querySelector('#modal-mens-entrega .btn-lancar').textContent = '💾 Salvar Alterações';
+  document.querySelector('#modal-mens-entrega .btn-lancar').onclick = mensSalvarEdicaoEntrega;
+
+  document.getElementById('mens-ent-plano-id').value = planoId;
+  document.getElementById('mens-ent-cliente').textContent = _planoEditando.clientes?.nome || '—';
+  document.getElementById('mens-ent-tel').textContent = _planoEditando.clientes?.telefone || '';
+  document.getElementById('mens-ent-produto').textContent = _planoEditando.produto_nome;
+
+  const qtdInput = document.getElementById('mens-ent-qtd');
+  const qtdLabel = document.getElementById('mens-ent-qtd-label');
+  if (isKg) {
+    qtdInput.step = '0.001';
+    qtdInput.min = '0.001';
+    qtdInput.value = _mensIntToKg(entrega.quantidade);
+    if (qtdLabel) qtdLabel.textContent = 'Peso (kg) *';
+  } else {
+    qtdInput.step = '1';
+    qtdInput.min = '1';
+    qtdInput.value = entrega.quantidade;
+    if (qtdLabel) qtdLabel.textContent = 'Quantidade *';
+  }
+
+  document.getElementById('mens-ent-obs').value = entrega.observacoes || '';
+  _mens_itensExtras = entrega.itens_extras || [];
+  _mensRenderItensExtras();
+
+  modal.style.display = 'flex';
+  document.getElementById('mens-ent-qtd').focus();
+  
+}
+
+async function mensSalvarEdicaoEntrega() {
+  if (!_entregaEditando || !_planoEditando) { alert('Nenhuma entrega em edição.'); return; }
+
+  const planoId = parseInt(document.getElementById('mens-ent-plano-id').value);
+  const obs = document.getElementById('mens-ent-obs').value.trim();
+  const tipo = _mensGetTipo(_planoEditando);
+  const isKg = tipo === 'kg';
+
+  const qtdRaw = document.getElementById('mens-ent-qtd').value;
+  const novaQtd = isKg ? _mensKgToInt(qtdRaw) : (parseInt(qtdRaw) || 0);
+  if (novaQtd <= 0) { alert('Insira uma quantidade válida.'); return; }
+
+  const qtdAntiga = _entregaEditando.quantidade;
+  const diff = novaQtd - qtdAntiga; // diferença (se aumentou, consome mais saldo; se diminuiu, devolve)
+
+  const novoSaldo = _planoEditando.quantidade_restante - diff;
+  if (novoSaldo < 0) {
+    if (!confirm(`⚠️ Após essa alteração, o saldo ficará negativo (${_mensFmtQtd(novoSaldo, tipo)}). Continuar?`)) return;
+  }
+
+  // Atualizar entrega
+  const { error: errUpd } = await supa
+    .from('mensalista_entregas')
+    .update({
+      quantidade: novaQtd,
+      observacoes: obs,
+      itens_extras: _mens_itensExtras.length > 0 ? _mens_itensExtras : null,
+      valor_extras: _mens_itensExtras.reduce((s, i) => s + i.preco * i.qtd, 0)
+    })
+    .eq('id', _entregaEditando.id);
+
+  if (errUpd) { alert('Erro ao atualizar entrega: ' + errUpd.message); return; }
+
+  // Atualizar plano: quantidade_restante e valor_restante (recalcular)
+  const novoRestante = _planoEditando.quantidade_restante - diff;
+  const valorPorUnidade = (_planoEditando.quantidade_total || 0) > 0
+    ? (_planoEditando.valor_plano || 0) / _planoEditando.quantidade_total
+    : 0;
+  const novoValorRestante = Math.round(valorPorUnidade * novoRestante);
+
+  const { error: errPlano } = await supa
+    .from('planos_mensalistas')
+    .update({
+      quantidade_restante: novoRestante,
+      valor_restante: novoValorRestante
+    })
+    .eq('id', planoId);
+
+  if (errPlano) { alert('Erro ao atualizar plano: ' + errPlano.message); return; }
+
+  // Atualizar estado local
+  _planoEditando.quantidade_restante = novoRestante;
+  _planoEditando.valor_restante = novoValorRestante;
+
+  fecharModal('modal-mens-entrega');
+  mensVerHistorico(planoId);
+  mensCarregarPlanos();
+  _entregaEditando = null;
+  _planoEditando = null;
+  _mens_itensExtras = [];
 }
 
 async function mensReimprimirEntrega(entregaId, planoId) {

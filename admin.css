@@ -4719,3 +4719,46 @@ body.sidebar-collapsed .main-content {
         transform: translateY(0);
     }
 }
+
+/* Impressão do modal de fechamento */
+@media print {
+  #modal-fechamento-caixa {
+    background: white !important;
+    padding: 0 !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    z-index: 99999 !important;
+  }
+  #modal-fechamento-caixa > div {
+    box-shadow: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: 1px solid #ccc !important;
+    padding: 20px !important;
+    width: 100% !important;
+  }
+  #modal-fechamento-caixa button {
+    display: none !important;
+  }
+}
+
+@media print {
+  #modal-fechamento-caixa {
+    background: white !important;
+    padding: 0 !important;
+  }
+  #modal-fechamento-caixa > div {
+    box-shadow: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  #modal-fechamento-caixa button {
+    display: none !important;
+  }
+}

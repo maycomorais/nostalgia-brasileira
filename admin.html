@@ -668,7 +668,8 @@
                   <option value="CartaoBR">💳🇧🇷 Cartão BR</option>
                   <option value="Pix">✅ Pix</option>
                   <option value="Transferencia">🏦 Alias (PY)</option>
-                  <option value="QrPy">📱 QR Paraguay</option>
+                  <option value="QrMarina">📱 QR Maquina</option>
+                  <option value="QrCelular">📱 QR Celular</option>
                   <option value="Multipagamento">🔀 Dividir</option>
                   <option value="Mensalista">🎫 Mensalista</option>
                   <option value="NaNota">📋 Colocar na Nota</option>
@@ -829,6 +830,8 @@
         <option value="Efetivo">Dinheiro</option>
         <option value="Cartao">Cartão</option>
         <option value="Pix">Pix</option>
+        <option value="QrMaquina">QR Maquina</option>
+        <option value="QrCelular">QR Celular</option>
         <option value="Transferencia">Transferência</option>
       </select>
     </div>
@@ -937,6 +940,10 @@
       <div class="kpi-card" style="background: #e7e8ea; border-left: 4px solid #6c757d;">
         <h4 style="color: #383d41;">Transferência</h4>
         <div class="value" id="total-transf" style="color: #383d41;">Gs 0</div>
+      </div>
+      <div class="kpi-card" style="background: #f3e8ff; border-left: 4px solid #8b5cf6;">
+        <h4 style="color: #6b21a8;">📱 QR Celular</h4>
+        <div class="value" id="total-qr" style="color: #6b21a8;">Gs 0</div>
       </div>
       <div class="kpi-card" style="background: #fef3c7; border-left: 4px solid #d97706;">
         <h4 style="color: #92400e;">📋 Na Nota</h4>
@@ -2825,7 +2832,7 @@
     <div id="mens-ent-itens-extras-cont"></div>
     <div style="display:flex;gap:10px;margin-top:20px">
       <button onclick="fecharModal('modal-mens-entrega')" style="flex:1;padding:11px;border:1.5px solid #e5e7eb;background:#fff;border-radius:9px;font-weight:600;cursor:pointer;font-size:0.9rem;color:#4b5563" data-i18n="geral.cancelar">Cancelar</button>
-      <button onclick="mensSalvarEntrega()" style="flex:2;padding:11px;background:#1a7a2e;color:#fff;border:none;border-radius:9px;font-weight:700;cursor:pointer;font-size:0.9rem" data-i18n="mens.confirmar_entrega">✅ Confirmar Entrega</button>
+      <button onclick="mensSalvarEntrega()" class="btn-lancar" style="flex:2;padding:11px;background:#1a7a2e;color:#fff;border:none;border-radius:9px;font-weight:700;cursor:pointer;font-size:0.9rem" data-i18n="mens.confirmar_entrega">✅ Confirmar Entrega</button>
     </div>
   </div>
 </div>
