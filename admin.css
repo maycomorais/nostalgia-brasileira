@@ -4762,3 +4762,8 @@ body.sidebar-collapsed .main-content {
     display: none !important;
   }
 }
+
+#modal-editar-pedido .form-control:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(255,68,31,0.1);
+}

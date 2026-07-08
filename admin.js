@@ -213,7 +213,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (abaAtual === "pdv") carregarMonitorMesas();
     // if (abaAtual === 'financeiro') calcularFinanceiro();
     if (abaAtual === "dashboard") carregarDashboard();
+
   }, 10000);
+
+  if (typeof initFacturacion === 'function') {
+    // Será chamado quando a aba for aberta
+  }
 
   // Verifica Login e Permissões
   if (typeof checkUser === "function") {
@@ -551,6 +556,10 @@ function showTab(tabId, event) {
       showTab("pedidos", null);
     }
   }
+  if (realTabId === 'facturacion') {
+    console.log('Mostrando aba facturacion, chamando initFacturacion');
+  if (typeof initFacturacion === 'function') initFacturacion();
+}
 }
 
 const SUBTABS_VALIDAS = [
@@ -2293,8 +2302,6 @@ async function carregarRelatorio() {
   } else {
     const ini = filtroInicio || hoje;
     const fim = filtroFim || hoje;
-    // Paraguay UTC-4: shift local date range to UTC so after-midnight sales are captured
-    // e.g. local 00:00 PY = UTC 04:00; local 23:59 PY = UTC 03:59 next day
     const _off = 4 * 60 * 60 * 1000;
     const utcIni = new Date(
       new Date(ini + "T00:00:00").getTime() + _off,
@@ -2367,7 +2374,6 @@ async function carregarRelatorio() {
       })
       .join("<br>");
 
-    // Cancelamento info
     let cancelInfo = "";
     if (p.status === "cancelado") {
       const quem = p.cancelamento_solicitado_por || "admin";
@@ -2378,7 +2384,6 @@ async function carregarRelatorio() {
         🚫 Solicitado por: ${p.cancelamento_solicitado_por || "?"}</div>`;
     }
 
-    // Tipo badge
     const tipoBadges = {
       balcao:
         '<span style="background:#e8f4f8;color:#1a6e8a;border-radius:10px;padding:2px 7px;font-size:0.68rem;font-weight:700">🏪 PDV</span>',
@@ -2389,7 +2394,6 @@ async function carregarRelatorio() {
     };
     const tipoBadge = tipoBadges[p.tipo_entrega] || "";
 
-    // Timeline — PDV tem etapas diferentes
     const tl = isPDV
       ? [
           {
@@ -2472,6 +2476,14 @@ async function carregarRelatorio() {
       ? fmtDiff(p.tempo_recebido || p.created_at, p.tempo_entregue)
       : fmtDiff(p.tempo_recebido, p.tempo_entregue);
 
+    // 🔽 NOVA PARTE: verifica permissão e cria botão de edição
+    const podeEditar = ['gerente', 'dono', 'adminMaster'].includes(perfilUsuario);
+    const btnEditar = podeEditar
+      ? `<button class="btn btn-sm btn-primary" onclick="abrirEdicaoPedidoRelatorio(${p.id})" title="Editar pedido">
+           <i class="fas fa-pen"></i>
+         </button>`
+      : '';
+
     const _tz = { timeZone: "America/Asuncion" };
     tbody.innerHTML += `<tr style="border-bottom:1px solid #eee;vertical-align:top">
       <td style="padding:10px 8px;white-space:nowrap">
@@ -2497,11 +2509,14 @@ async function carregarRelatorio() {
         ${tlHtml}
         ${totalTime !== "-" ? `<div style="margin-top:5px;padding:3px 7px;background:#f0f4ff;border-radius:6px;font-size:0.75rem;font-weight:700;color:#3a4db7;text-align:center">⏱ ${totalTime}</div>` : ""}
       </td>
+      <td style="padding:10px 8px;text-align:center;white-space:nowrap;">
+        ${btnEditar}
+      </td>
     </tr>`;
   });
   if (!pedidos || pedidos.length === 0)
     tbody.innerHTML =
-      '<tr><td colspan="6" style="text-align:center;padding:40px;color:#aaa">Nenhum pedido encontrado.</td></tr>';
+      '<tr><td colspan="7" style="text-align:center;padding:40px;color:#aaa">Nenhum pedido encontrado.</td></tr>';
   const el = document.getElementById("rel-total-count");
   if (el) el.textContent = (pedidos || []).length + " pedidos encontrados";
 }
@@ -9928,6 +9943,18 @@ async function salvarPedidoBalcao() {
 
   const _soKg = carrinhoPDV.length > 0 && carrinhoPDV.every((i) => i._isKg);
 
+  let dadosFactura = null;
+  if (document.getElementById('pdv-check-factura').checked) {
+    const ruc = document.getElementById('pdv-cli-ruc').value.trim();
+    const razao = document.getElementById('pdv-cli-razao').value.trim();
+    if (ruc || razao) {
+      dadosFactura = { ruc, razao };
+    } else {
+      // Se marcou mas não preencheu, emitimos como Consumidor Final (opcional)
+      dadosFactura = { ruc: '', razao: 'Consumidor Final' };
+    }
+  }
+
   const mesa = document.getElementById("balcao-mesa").value.trim();
   const cli =
     document.getElementById("balcao-cliente").value.trim() || "Cliente";
@@ -10125,6 +10152,7 @@ async function salvarPedidoBalcao() {
     tempo_recebido: _agora,
     tempo_confirmado: _agora,
     tempo_preparo_iniciado: _agora,
+    dados_factura: dadosFactura,
     ...(_soKg ? { tempo_pronto: _agora, tempo_entregue: _agora } : {}),
   };
 
@@ -12947,4 +12975,174 @@ async function registrarMovimentacaoCaixa({
     return false;
   }
   return true;
+}
+
+function pdvToggleFactura() {
+  const checked = document.getElementById('pdv-check-factura').checked;
+  const box = document.getElementById('pdv-box-ruc');
+  if (box) box.style.display = checked ? 'block' : 'none';
+}
+
+// ──────────────────────────────────────────────────────────────
+//  ABRIR MODAL DE EDIÇÃO DO PEDIDO (RELATÓRIO)
+// ──────────────────────────────────────────────────────────────
+async function abrirEdicaoPedidoRelatorio(pedidoId) {
+  // Verifica permissão (gerente, dono ou adminMaster)
+  if (!['gerente', 'dono', 'adminMaster'].includes(perfilUsuario)) {
+    alert('Acesso negado. Apenas gerentes e donos podem editar.');
+    return;
+  }
+
+  try {
+    const { data: pedido, error } = await supa
+      .from('pedidos')
+      .select('*')
+      .eq('id', pedidoId)
+      .single();
+
+    if (error || !pedido) throw error;
+
+    // Preenche cabeçalho
+    document.getElementById('edit-pedido-id').textContent = pedido.id;
+    document.getElementById('edit-pedido-cliente').textContent =
+      `👤 ${pedido.cliente_nome || 'Cliente'} · ${pedido.tipo_entrega || '—'}`;
+
+    // Preenche itens
+    const container = document.getElementById('edit-pedido-itens');
+    container.innerHTML = '';
+    const itens = pedido.itens || [];
+    let total = pedido.total_geral || 0;
+
+    itens.forEach((item, idx) => {
+      const isKg = item._isKg || item.peso_gramas > 0;
+      const qtd = item.qtd || item.q || 1;
+      const nome = item.nome || item.n || 'Item';
+      const preco = item.preco || item.p || 0;
+      const peso = item.peso_gramas || 0;
+
+      const div = document.createElement('div');
+      div.style.cssText = 'border-bottom:1px solid #f5f5f5; padding:6px 0; display:flex; align-items:center; gap:8px;';
+
+      div.innerHTML = `
+        <span style="flex:1; font-size:0.9rem;">
+          <strong>${qtd}x</strong> ${nome}
+          ${isKg ? ` <span style="color:#0891b2; font-size:0.8rem;">(kg)</span>` : ''}
+          <span style="color:#888; font-size:0.8rem; margin-left:6px;">Gs ${preco.toLocaleString('es-PY')}</span>
+        </span>
+        ${isKg ? `
+          <input type="number" id="edit-peso-${idx}" value="${peso}" min="0" step="1"
+            style="width:80px; padding:4px 6px; border:1.5px solid #0891b2; border-radius:6px; font-size:0.85rem; text-align:center;"
+            placeholder="gramas">
+          <span style="font-size:0.7rem; color:#888;">g</span>
+        ` : ''}
+      `;
+      container.appendChild(div);
+    });
+
+    // Total
+    document.getElementById('edit-pedido-total').value = total;
+
+    // Exibe modal
+    document.getElementById('modal-editar-pedido').style.display = 'flex';
+
+    // Armazena pedidoId para salvar
+    document.getElementById('modal-editar-pedido').dataset.pedidoId = pedidoId;
+
+  } catch (err) {
+    alert('Erro ao carregar pedido: ' + err.message);
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+//  SALVAR EDIÇÃO DO PEDIDO
+// ──────────────────────────────────────────────────────────────
+async function salvarEdicaoPedidoRelatorio() {
+  const modal = document.getElementById('modal-editar-pedido');
+  const pedidoId = modal.dataset.pedidoId;
+  if (!pedidoId) return;
+
+  // Coleta novo total
+  const novoTotal = parseFloat(document.getElementById('edit-pedido-total').value);
+  if (isNaN(novoTotal) || novoTotal < 0) {
+    alert('Informe um total válido.');
+    return;
+  }
+
+  // Coleta novos pesos (apenas para itens kg)
+  const itensContainer = document.getElementById('edit-pedido-itens');
+  const inputsPeso = itensContainer.querySelectorAll('input[id^="edit-peso-"]');
+  const novosPesos = {};
+  inputsPeso.forEach(inp => {
+    const idx = inp.id.replace('edit-peso-', '');
+    const val = parseInt(inp.value);
+    if (!isNaN(val) && val >= 0) {
+      novosPesos[idx] = val;
+    }
+  });
+
+  // Busca pedido atual para obter itens
+  const { data: pedido, error: errFetch } = await supa
+    .from('pedidos')
+    .select('itens, subtotal, total_geral, desconto_pdv_valor, frete_cobrado_cliente, cupom_codigo')
+    .eq('id', pedidoId)
+    .single();
+
+  if (errFetch || !pedido) {
+    alert('Erro ao buscar pedido para atualização.');
+    return;
+  }
+
+  const itens = pedido.itens || [];
+  let subtotal = 0;
+
+  // Atualiza pesos e recalcula subtotal
+  const itensAtualizados = itens.map((item, idx) => {
+    const isKg = item._isKg || item.peso_gramas > 0;
+    if (isKg && novosPesos.hasOwnProperty(idx)) {
+      const novoPeso = novosPesos[idx];
+      item.peso_gramas = novoPeso;
+      // Recalcula preço do item kg (preco_kg * peso / 1000)
+      if (item.preco_kg) {
+        item.preco = Math.round((item.preco_kg * novoPeso) / 1000);
+      }
+    }
+    // Soma ao subtotal
+    const preco = item.preco || item.p || 0;
+    const qtd = item.qtd || item.q || 1;
+    subtotal += (isKg ? preco : preco * qtd);
+    return item;
+  });
+
+  // Mantém descontos e frete como estavam
+  const desconto = pedido.desconto_pdv_valor || 0;
+  const frete = pedido.frete_cobrado_cliente || 0;
+  const totalFinal = subtotal - desconto + frete;
+
+  // Atualiza pedido
+  const updateData = {
+    itens: itensAtualizados,
+    subtotal: subtotal,
+    total_geral: totalFinal,
+    // Se houver cupom, mantém o desconto (não mexe)
+  };
+
+  // Se o total editado manualmente for diferente do calculado, usamos o manual
+  if (novoTotal !== totalFinal) {
+    updateData.total_geral = novoTotal;
+  }
+
+  const { error: errUpdate } = await supa
+    .from('pedidos')
+    .update(updateData)
+    .eq('id', pedidoId);
+
+  if (errUpdate) {
+    alert('Erro ao salvar: ' + errUpdate.message);
+    return;
+  }
+
+  alert('✅ Pedido atualizado com sucesso!');
+  fecharModal('modal-editar-pedido');
+  // Recarrega o relatório para refletir as alterações
+  carregarRelatorio();
 }

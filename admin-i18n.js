@@ -24,6 +24,7 @@ const ADMIN_LANGS = {
     'sidebar.estoque':      'Estoque',
     'sidebar.turnos':       'Turnos',
     'sidebar.sair':         'Sair',
+    'sidebar.facturacion': 'Faturação',
 
     // ── Dashboard ──────────────────────────────────────────
     'dash.title':           'Painel de Controle',
@@ -933,6 +934,7 @@ const ADMIN_LANGS = {
     'prod.somente_balcao':  'Solo Mostrador',
     'prod.extras':          '¿Tiene adicionales?',
     'prod.estoque':         'Vincular al stock',
+    'sidebar.facturacion': 'Facturación',
 
     // ── Categorias ─────────────────────────────────────────
     'cat.title':            '🏷️ Categorías del Menú',
