@@ -390,49 +390,75 @@ document.addEventListener("DOMContentLoaded", async () => {
   );
 });
 
-// selecionarTipo do Gemini removido — o sistema usa selecionarTipoBuilder() abaixo
-
-// =========================================
-// CLOUDINARY — UPLOAD UTILITÁRIO
-// =========================================
-const CLOUDINARY_CLOUD_NAME = "dsxwnbj0o";
-const CLOUDINARY_UPLOAD_PRESET = "ml_default";
-const CLOUDINARY_ENDPOINT = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`;
+// ========================================
+// IMGBB UPLOAD
+// ========================================
+const IMGBB_API_KEY = "d6ade30e77d706a440f7c03f08af33c4"; // Substitua pela sua chave
 
 /**
- * Faz upload de um arquivo de imagem diretamente para o Cloudinary
- * usando um Unsigned Upload Preset público.
- *
- * @param {File} file - O objeto File selecionado pelo usuário.
- * @returns {Promise<string>} - A secure_url final da imagem no Cloudinary.
- * @throws {Error} - Lança um erro se o upload falhar, impedindo o salvamento no Supabase.
+ * Faz upload de uma imagem para o ImgBB e retorna a URL direta.
+ * @param {File} file - Arquivo de imagem
+ * @param {number} quality - Qualidade WebP (0-100), padrão 80
+ * @returns {Promise<string>} - URL da imagem
  */
-async function uploadImageToCloudinary(file) {
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+async function uploadImageToImgbb(file, quality = 80) {
+  // 1. Validações
+  const tiposPermitidos = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+  if (!tiposPermitidos.includes(file.type)) {
+    throw new Error('Formato inválido. Use JPG, PNG, WEBP ou GIF.');
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    throw new Error('Imagem muito grande. Máximo 10MB (limite do ImgBB).');
+  }
 
-  const response = await fetch(CLOUDINARY_ENDPOINT, {
-    method: "POST",
+  // 2. Converter para WebP (comprime e reduz tamanho)
+  const webpBlob = await convertToWebP(file, quality);
+
+  // 3. Enviar para ImgBB via API
+  const formData = new FormData();
+  formData.append('key', IMGBB_API_KEY);
+  formData.append('image', webpBlob, 'image.webp'); // Envia como Blob
+  formData.append('name', file.name.replace(/\.[^.]+$/, '.webp'));
+
+  const response = await fetch('https://api.imgbb.com/1/upload', {
+    method: 'POST',
     body: formData,
   });
 
-  if (!response.ok) {
-    let errMsg = `HTTP ${response.status}`;
-    try {
-      const errData = await response.json();
-      errMsg = errData?.error?.message || errMsg;
-    } catch (_) {}
-    throw new Error(`Cloudinary upload falhou: ${errMsg}`);
-  }
-
   const data = await response.json();
-
-  if (!data.secure_url) {
-    throw new Error("Cloudinary não retornou uma URL válida.");
+  if (!data.success) {
+    throw new Error(`ImgBB: ${data.error?.message || 'Erro desconhecido'}`);
   }
 
-  return data.secure_url;
+  // Retorna a URL direta da imagem (display_url)
+  return data.data.url;
+}
+
+/**
+ * Converte um File/Blob para WebP com qualidade ajustável.
+ */
+function convertToWebP(file, quality = 80) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob((blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error('Falha na conversão para WebP'));
+        }, 'image/webp', quality / 100);
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 // =========================================
@@ -3444,7 +3470,7 @@ async function salvarProduto() {
     if (fileInput.files.length > 0) {
       btn.innerText = "Enviando imagem...";
       try {
-        urlFinal = await uploadImageToCloudinary(fileInput.files[0]);
+        urlFinal = await uploadImageToImgbb(fileInput.files[0]);
       } catch (uploadErr) {
         alert("❌ Falha no upload da imagem: " + uploadErr.message + "\nO produto não foi salvo.");
         return;
@@ -4546,7 +4572,7 @@ async function uploadSaborImagem(fileInput, row) {
 
   try {
     // ── Upload para o Cloudinary (substitui Supabase Storage) ──
-    const url = await uploadImageToCloudinary(file);
+    const url = await uploadImageToImgbb(file);
 
     const inp =
       row.querySelector('[data-f="simg"]') ||
@@ -6741,7 +6767,7 @@ async function salvarBanner(num = 1) {
       btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando imagem...';
       // ── Upload para o Cloudinary (substitui Supabase Storage) ──
       try {
-        urlFinal = await uploadImageToCloudinary(file);
+        urlFinal = await uploadImageToImgbb(file);
       } catch (uploadErr) {
         alert("❌ Falha no upload do banner: " + uploadErr.message + "\nO banner não foi salvo.");
         return;
@@ -7044,7 +7070,7 @@ async function salvarPersonalizacao() {
       // ── Upload para o Cloudinary (substitui Supabase Storage) ──
       let iconeUrl;
       try {
-        iconeUrl = await uploadImageToCloudinary(iconeFile);
+        iconeUrl = await uploadImageToImgbb(iconeFile);
       } catch (uploadErr) {
         alert("❌ Falha no upload do ícone: " + uploadErr.message + "\nA personalização não foi salva.");
         return;
@@ -7094,7 +7120,7 @@ async function _uploadLogoIdentidade(input) {
 
   try {
     // ── Upload para o Cloudinary (substitui Supabase Storage) ──
-    const url = await uploadImageToCloudinary(file);
+    const url = await uploadImageToImgbb(file);
 
     // Preenche o campo de URL de texto
     const urlInput = document.getElementById("cfg-logo-url");
