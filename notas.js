@@ -133,6 +133,11 @@ function notasRenderLista() {
             style="flex:1;padding:10px;background:#f3f4f6;color:#374151;border:1.5px solid #e5e7eb;border-radius:9px;font-weight:600;cursor:pointer;font-size:0.85rem">
             🖨️ Imprimir
           </button>
+          ${c.telefone ? `
+          <button onclick="notasAvisarCliente('${chaveSanitizada}')"
+            style="flex:1;padding:10px;background:#25D366;color:#fff;border:none;border-radius:9px;font-weight:600;cursor:pointer;font-size:0.85rem">
+            <i class="fab fa-whatsapp"></i> Avisar
+          </button>` : ''}
         </div>` : ''}
 
         ${quitados.length > 0 ? `
@@ -336,6 +341,56 @@ async function notasQuitarTodos(chaveSanitizada) {
   notasAgrupar();
   notasRenderKPIs();
   notasRenderLista();
+}
+
+// ── AVISAR CLIENTE VIA WHATSAPP ────────────────────────────────
+function notasAvisarCliente(chaveSanitizada) {
+  const entry = _notasClientePorId(chaveSanitizada);
+  if (!entry) return;
+  const [, c] = entry;
+
+  const tel = (c.telefone || '').replace(/\D/g, '');
+  if (!tel) {
+    alert('Este cliente não tem telefone registrado.');
+    return;
+  }
+
+  const abertos = c.pedidos.filter(p => !p.quitado);
+  const nomeRestaurante = (typeof NOME_RESTAURANTE !== 'undefined' && NOME_RESTAURANTE) || 'Restaurante';
+  const totalFmt = Math.round(c.total).toLocaleString('es-PY');
+  const primeiroNome = (c.nome || 'Cliente').split(' ')[0];
+
+  const msg = `¡Hola, ${primeiroNome}! 👋\n\n`
+    + `Te escribimos de *${nomeRestaurante}* para recordarte, de forma amable, que tenés `
+    + `${abertos.length > 1 ? `${abertos.length} pedidos` : 'un pedido'} en la nota, `
+    + `con un total de *Gs ${totalFmt}*.\n\n`
+    + `Cuando puedas pasar a regularizarlo, te lo agradecemos mucho. 🙏\n`
+    + `¡Cualquier duda, quedamos a disposición!`;
+
+  const foneDestino = tel.startsWith('595') ? tel : `595${tel.replace(/^0/, '')}`;
+  window.open(`https://wa.me/${foneDestino}?text=${encodeURIComponent(msg)}`, '_blank');
+}
+
+// ── AVISAR TODOS OS CLIENTES COM CONTA EM ABERTO ───────────────
+function notasAvisarTodosPendentes() {
+  const pendentes = Object.entries(_notas_clientes)
+    .map(([chave, c]) => ({ chave, ...c }))
+    .filter(c => c.total > 0 && c.telefone);
+
+  if (!pendentes.length) {
+    alert('Nenhum cliente com telefone e conta em aberto.');
+    return;
+  }
+
+  const ok = confirm(`Isso abrirá ${pendentes.length} conversa(s) no WhatsApp, uma por cliente. Continuar?`);
+  if (!ok) return;
+
+  pendentes.forEach((c, i) => {
+    setTimeout(() => {
+      const chaveSanitizada = c.chave.replace(/[^a-zA-Z0-9]/g, '');
+      notasAvisarCliente(chaveSanitizada);
+    }, i * 600);
+  });
 }
 
 // ── IMPRIMIR CONTA ────────────────────────────────────────────
