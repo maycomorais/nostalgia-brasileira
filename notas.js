@@ -2,6 +2,36 @@
 //  MÓDULO: CONTAS NA NOTA (FIADO)
 //  Gerencia pedidos com forma_pagamento = "NaNota"
 //  Permite visualizar, cobrar, imprimir e quitar contas
+//
+//  ── ALTERAÇÕES NESTA REVISÃO ─────────────────────────────────
+//  1. Quitação agora grava dados estruturados em vez de depender
+//     só de texto livre em obs_pagamento:
+//       - pedidos.quitado_em                (timestamptz)
+//       - pedidos.forma_pagamento_quitacao  (text)
+//     Isso corrige dois problemas no relatório Financeiro:
+//       a) a forma de pagamento escolhida na quitação não era
+//          usada no breakdown por método (Efetivo/Cartão/Pix...)
+//          porque pedidos.forma_pagamento continuava "NaNota" pra
+//          sempre — só o texto em obs_pagamento guardava a forma
+//          real, e o Financeiro nunca lia esse texto.
+//       b) o Financeiro filtra pedidos por created_at (data de
+//          CRIAÇÃO do pedido). Uma nota criada semanas atrás e
+//          quitada hoje nunca aparecia no relatório do dia da
+//          quitação. Com quitado_em, o admin.js passa a poder
+//          filtrar pela data real do pagamento.
+//     Requer migração SQL (rodar uma vez no Supabase):
+//       ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS quitado_em TIMESTAMPTZ;
+//       ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS forma_pagamento_quitacao TEXT;
+//
+//  2. Removida duplicidade de _notasModalFormaPagamento() — havia
+//     duas declarações da mesma função (uma com 5 opções, outra
+//     com 6 incluindo QrCelular); a segunda sobrescrevia a primeira
+//     silenciosamente. Mantida uma única versão com 6 opções.
+//
+//  3. notasAgrupar() agora reconhece quitação tanto pelo campo novo
+//     (quitado_em) quanto pelo marcador de texto antigo ([quitado),
+//     garantindo retrocompatibilidade com pedidos já quitados antes
+//     desta revisão.
 // ============================================================
 
 let _notas_pedidos   = [];   // todos os pedidos NaNota
@@ -18,7 +48,7 @@ async function notasInicializar() {
 async function notasCarregar() {
   const { data, error } = await supa
     .from('pedidos')
-    .select('id, created_at, cliente_nome, cliente_telefone, itens, total_geral, forma_pagamento, obs_pagamento, status, tipo_entrega')
+    .select('id, created_at, cliente_nome, cliente_telefone, itens, total_geral, forma_pagamento, obs_pagamento, status, tipo_entrega, quitado_em, forma_pagamento_quitacao')
     .eq('forma_pagamento', 'NaNota')
     .order('created_at', { ascending: false });
 
@@ -40,8 +70,10 @@ function notasAgrupar() {
     if (!_notas_clientes[chave]) {
       _notas_clientes[chave] = { nome, telefone: tel, pedidos: [], total: 0, quitado: 0 };
     }
+    // Reconhece quitação pelo campo novo (quitado_em) OU, para registros
+    // antigos gravados antes desta revisão, pelo marcador de texto.
     const obs_norm = (p.obs_pagamento || '').toLowerCase().replace(/\s+/g, ' ').trim();
-    const quitado = obs_norm.includes('[quitado');
+    const quitado = !!p.quitado_em || obs_norm.includes('[quitado');
     _notas_clientes[chave].pedidos.push({ ...p, quitado });
     if (!quitado) _notas_clientes[chave].total += p.total_geral || 0;
     else          _notas_clientes[chave].quitado += p.total_geral || 0;
@@ -163,6 +195,12 @@ function _notasPedidoRow(p, quitado) {
   const itens = Array.isArray(p.itens) ? p.itens : [];
   const resumo = itens.slice(0, 3).map(i => `${i.qtd || 1}x ${i.nome || i.n || '?'}`).join(', ') + (itens.length > 3 ? '...' : '');
 
+  // Forma de pagamento da quitação: usa o campo estruturado quando existir,
+  // com fallback pro texto livre para pedidos quitados antes desta revisão.
+  const formaExib = p.forma_pagamento_quitacao
+    || (p.obs_pagamento || '').match(/Forma:\s*([A-Za-zÀ-ú]+)/i)?.[1]
+    || null;
+
   return `
   <div style="background:${quitado ? '#f0fdf4' : '#fff'};border:1px solid ${quitado ? '#bbf7d0' : '#fecaca'};border-radius:9px;padding:9px 12px;margin-bottom:6px">
     <div style="display:flex;justify-content:space-between;align-items:flex-start">
@@ -172,19 +210,22 @@ function _notasPedidoRow(p, quitado) {
       </div>
       <div style="text-align:right;margin-left:10px;flex-shrink:0">
         <div style="font-weight:800;font-size:0.88rem;color:${quitado ? '#16a34a' : '#dc2626'}">Gs ${Math.round(p.total_geral || 0).toLocaleString('es-PY')}</div>
-        ${!quitado ? `<button onclick="notasQuitarPedido(${p.id}, event)"
-          style="font-size:0.68rem;background:#dcfce7;color:#16a34a;border:1px solid #86efac;border-radius:5px;padding:2px 7px;cursor:pointer;margin-top:3px;font-weight:700">
-          Quitar este
-        </button>` : `<div style="font-size:0.68rem;color:#16a34a;font-weight:600;margin-top:2px">✅ Quitado</div>`}
+        ${!quitado
+          ? `<button onclick="notasQuitarPedido(${p.id}, event)"
+              style="font-size:0.68rem;background:#dcfce7;color:#16a34a;border:1px solid #86efac;border-radius:5px;padding:2px 7px;cursor:pointer;margin-top:3px;font-weight:700">
+              Quitar este
+            </button>`
+          : `<div style="font-size:0.68rem;color:#16a34a;font-weight:600;margin-top:2px">✅ Quitado${formaExib ? ' · ' + formaExib : ''}</div>`}
       </div>
     </div>
   </div>`;
 }
 
 // ============================================================
-//  QUITAR PEDIDO INDIVIDUAL
+//  MODAL — ESCOLHA DA FORMA DE PAGAMENTO DA QUITAÇÃO
+//  (única definição — antes havia duas declarações duplicadas
+//   desta mesma função, a segunda sobrescrevia a primeira)
 // ============================================================
-
 function _notasModalFormaPagamento() {
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
@@ -193,7 +234,7 @@ function _notasModalFormaPagamento() {
       <div style="background:#fff;border-radius:16px;padding:24px;max-width:360px;width:100%;">
         <h3 style="margin-bottom:16px;font-size:1.1rem;">💵 Escolha a forma de pagamento</h3>
         <div style="display:flex;flex-direction:column;gap:8px;">
-          ${['Efetivo','Cartao','Pix','Transferencia','QrPy'].map(m =>
+          ${['Efetivo','Cartao','Pix','Transferencia','QrPy','QrCelular'].map(m =>
             `<button data-forma="${m}" style="padding:12px;border:2px solid #e0e0e0;border-radius:8px;background:#f9f9f9;cursor:pointer;font-weight:600;font-size:0.95rem;text-align:left;">
               ${m}
             </button>`
@@ -218,6 +259,9 @@ function _notasModalFormaPagamento() {
   });
 }
 
+// ============================================================
+//  QUITAR PEDIDO INDIVIDUAL
+// ============================================================
 async function notasQuitarPedido(pedidoId, event) {
   if (event) event.stopPropagation();
 
@@ -234,12 +278,18 @@ async function notasQuitarPedido(pedidoId, event) {
   const formaPag = await _notasModalFormaPagamento();
   if (!formaPag) return; // cancelou
 
-  const dataHora = new Date().toLocaleString('es-PY');
+  const agora    = new Date();
+  const dataHora = agora.toLocaleString('es-PY');
 
-  // 3. Atualiza o pedido
+  // 3. Atualiza o pedido — grava dado estruturado (quitado_em, forma_pagamento_quitacao)
+  //    além do texto legível em obs_pagamento (mantido para histórico/impressão)
   const { error } = await supa
     .from('pedidos')
-    .update({ obs_pagamento: `[QUITADO em ${dataHora} - Forma: ${formaPag}]` })
+    .update({
+      obs_pagamento: `[QUITADO em ${dataHora} - Forma: ${formaPag}]`,
+      quitado_em: agora.toISOString(),
+      forma_pagamento_quitacao: formaPag,
+    })
     .eq('id', pedidoId);
 
   if (error) {
@@ -254,10 +304,10 @@ async function notasQuitarPedido(pedidoId, event) {
     return;
   }
 
-  // 5. Registra a movimentação no caixa usando a nova função
+  // 5. Registra a movimentação no caixa
   const usuario_email = document.getElementById('user-email')?.innerText || 'admin';
   const sucesso = await registrarMovimentacaoCaixa({
-    tipo: 'entrada', // ou 'suprimento', mas entrada é mais adequado
+    tipo: 'entrada',
     valor: p.total_geral || 0,
     descricao: `Quitação de nota - Pedido #${pedidoId} - Forma: ${formaPag}`,
     usuario_email,
@@ -269,7 +319,10 @@ async function notasQuitarPedido(pedidoId, event) {
     alert('⚠️ Pedido quitado, mas houve erro ao registrar no caixa. Verifique manualmente.');
   }
 
-  // 6. Atualiza a lista local e UI
+  // 6. Atualiza a lista local e UI (mantém objeto local coerente com o banco)
+  p.obs_pagamento = `[QUITADO em ${dataHora} - Forma: ${formaPag}]`;
+  p.quitado_em = agora.toISOString();
+  p.forma_pagamento_quitacao = formaPag;
   notasAgrupar();
   notasRenderKPIs();
   notasRenderLista();
@@ -305,13 +358,18 @@ async function notasQuitarTodos(chaveSanitizada) {
   const formaPag = await _notasModalFormaPagamento();
   if (!formaPag) return;
 
-  const dataHora = new Date().toLocaleString('es-PY');
+  const agora    = new Date();
+  const dataHora = agora.toLocaleString('es-PY');
   const ids = abertos.map(p => p.id);
 
-  // 3. Atualiza todos os pedidos
+  // 3. Atualiza todos os pedidos — grava dado estruturado + texto legível
   const { error } = await supa
     .from('pedidos')
-    .update({ obs_pagamento: `[QUITADO em ${dataHora} - Forma: ${formaPag}]` })
+    .update({
+      obs_pagamento: `[QUITADO em ${dataHora} - Forma: ${formaPag}]`,
+      quitado_em: agora.toISOString(),
+      forma_pagamento_quitacao: formaPag,
+    })
     .in('id', ids);
 
   if (error) {
@@ -334,9 +392,13 @@ async function notasQuitarTodos(chaveSanitizada) {
     alert('⚠️ Pedidos quitados, mas houve erro ao registrar no caixa. Verifique manualmente.');
   }
 
-  // 5. Atualiza UI
+  // 5. Atualiza UI (mantém objetos locais coerentes com o banco)
   for (const p of _notas_pedidos) {
-    if (ids.includes(p.id)) p.obs_pagamento = `[QUITADO em ${dataHora} - Forma: ${formaPag}]`;
+    if (ids.includes(p.id)) {
+      p.obs_pagamento = `[QUITADO em ${dataHora} - Forma: ${formaPag}]`;
+      p.quitado_em = agora.toISOString();
+      p.forma_pagamento_quitacao = formaPag;
+    }
   }
   notasAgrupar();
   notasRenderKPIs();
@@ -360,12 +422,12 @@ function notasAvisarCliente(chaveSanitizada) {
   const totalFmt = Math.round(c.total).toLocaleString('es-PY');
   const primeiroNome = (c.nome || 'Cliente').split(' ')[0];
 
-  const msg = `¡Hola, ${primeiroNome}! 👋\n\n`
-    + `Te escribimos de *${nomeRestaurante}* para recordarte, de forma amable, que tenés `
-    + `${abertos.length > 1 ? `${abertos.length} pedidos` : 'un pedido'} en la nota, `
-    + `con un total de *Gs ${totalFmt}*.\n\n`
-    + `Cuando puedas pasar a regularizarlo, te lo agradecemos mucho. 🙏\n`
-    + `¡Cualquier duda, quedamos a disposición!`;
+  const msg = `Oi, ${primeiroNome}! 👋\n\n`
+    + `Somos do *${nomeRestaurante}* e passamos para te lembrar, que você tem `
+    + `${abertos.length > 1 ? `${abertos.length} pedidos` : 'un pedido'} abertos na nota, `
+    + `com um total de *Gs ${totalFmt}*.\n\n`
+    + `Aguardamos a quitação e Agradecemos desde já! 🙏\n`
+    + `Qualquer dúvida, estamos à disposição.`;
 
   const foneDestino = tel.startsWith('595') ? tel : `595${tel.replace(/^0/, '')}`;
   window.open(`https://wa.me/${foneDestino}?text=${encodeURIComponent(msg)}`, '_blank');
@@ -448,44 +510,4 @@ function notasImprimirConta(chaveSanitizada) {
   </body></html>`);
   win.document.close();
   setTimeout(() => win.print(), 500);
-}
-
-/**
- * Exibe um modal para escolher a forma de pagamento da quitação.
- * @returns {Promise<string|null>} - retorna a forma escolhida ou null se cancelado.
- */
-function _notasModalFormaPagamento() {
-  return new Promise((resolve) => {
-    const overlay = document.createElement('div');
-    overlay.style.cssText = `
-      position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:99999;
-      display:flex; align-items:center; justify-content:center; padding:20px;
-    `;
-    overlay.innerHTML = `
-      <div style="background:#fff; border-radius:16px; padding:24px; max-width:360px; width:100%;">
-        <h3 style="margin-bottom:16px; font-size:1.1rem;">💵 Forma de pagamento para quitação</h3>
-        <div style="display:flex; flex-direction:column; gap:8px;">
-          ${['Efetivo','Cartao','Pix','Transferencia','QrPy','QrCelular'].map(m =>
-            `<button data-forma="${m}" style="padding:12px; border:2px solid #e0e0e0; border-radius:8px; background:#f9f9f9; cursor:pointer; font-weight:600; font-size:0.95rem; text-align:left;">
-              ${m}
-            </button>`
-          ).join('')}
-        </div>
-        <button id="cancel-quit" style="margin-top:12px; width:100%; padding:10px; background:#f0f0f0; border:none; border-radius:8px; cursor:pointer; font-weight:600;">Cancelar</button>
-      </div>
-    `;
-    document.body.appendChild(overlay);
-
-    overlay.querySelectorAll('[data-forma]').forEach(btn => {
-      btn.onclick = () => {
-        const forma = btn.dataset.forma;
-        overlay.remove();
-        resolve(forma);
-      };
-    });
-    overlay.querySelector('#cancel-quit').onclick = () => {
-      overlay.remove();
-      resolve(null);
-    };
-  });
 }

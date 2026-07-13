@@ -1,6 +1,16 @@
 // subscriptionAdmin.js
 // Painel de gestão de assinatura — visível SOMENTE para adminMaster.
 // Depende de: subscriptionDateUtils.js, subscriptionService.js
+//
+// ── ALTERAÇÕES NESTA REVISÃO ─────────────────────────────────
+// 1. Novo botão "🕐 Liberar +1 dia" ao lado de Bloquear/Desbloquear —
+//    concede acesso temporário que tem prioridade sobre qualquer
+//    bloqueio (ver calcularStatusAssinatura em subscriptionDateUtils.js).
+// 2. Badge do status 'liberado_manual' no card de Status.
+// 3. Aviso visual quando há uma liberação temporária ativa.
+// Requer migração SQL (rodar uma vez no Supabase):
+//   ALTER TABLE assinaturas ADD COLUMN IF NOT EXISTS liberado_ate DATE;
+//   ALTER TABLE assinaturas ADD COLUMN IF NOT EXISTS liberado_por TEXT;
 
 'use strict';
 
@@ -29,10 +39,11 @@ async function carregarPainelAssinatura() {
   }
 
   const statusObj = calcularStatusAssinatura(cfg, hoje);
-  const { status, diasParaVenc, diasParaBloc, dataVenc, dataLimite } = statusObj;
+  const { status, diasParaVenc, diasParaBloc, dataVenc, dataLimite, liberadoAte } = statusObj;
 
   // Status badge
   const BADGE = {
+    liberado_manual: { label: 'Liberado (+1 dia)', bg: '#dbeafe', cor: '#1e3a8a' },
     em_dia:         { label: 'Em Dia',        bg: '#d1fae5', cor: '#065f46' },
     alerta_verde:   { label: 'Vence em Breve', bg: '#d1fae5', cor: '#065f46' },
     alerta_amarelo: { label: 'Vence Amanhã',   bg: '#fef9c3', cor: '#78350f' },
@@ -53,6 +64,17 @@ async function carregarPainelAssinatura() {
     : `Dia ${cfg.dia_vencimento} (fixo)`;
 
   container.innerHTML = `
+    ${status === 'liberado_manual' ? `
+    <!-- ── Aviso de liberação temporária ativa ─────────── -->
+    <div style="background:#dbeafe;border:1.5px solid #60a5fa;border-radius:12px;padding:12px 16px;margin-bottom:18px;display:flex;align-items:center;gap:10px">
+      <span style="font-size:1.2rem">🕐</span>
+      <div style="font-size:0.86rem;color:#1e3a8a">
+        Liberação temporária ativa até <strong>${formatarData(liberadoAte)}</strong>
+        ${cfg.liberado_por ? ` (concedida por ${_esc(cfg.liberado_por)})` : ''}.
+        Ela tem prioridade sobre qualquer bloqueio até essa data.
+      </div>
+    </div>` : ''}
+
     <!-- ── Status atual ───────────────────────────────── -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px">
       <div class="sub-card">
@@ -98,6 +120,9 @@ async function carregarPainelAssinatura() {
         <button onclick="confirmarPagamentoAssinatura()"
           class="sub-btn-primary" ${pagouEsteMes ? 'style="background:#6b7280"' : ''}>
           ${pagouEsteMes ? '✅ Pago este mês' : '💰 Confirmar Pagamento'}
+        </button>
+        <button onclick="liberarMaisUmDiaAssinatura()" class="sub-btn-secondary" style="background:#3b82f6;color:#fff">
+          🕐 Liberar +1 dia
         </button>
         ${statusObj.status === 'bloqueado'
           ? `<button onclick="desbloquearAssinatura()" class="sub-btn-secondary" style="background:#dc2626;color:#fff">
@@ -318,5 +343,35 @@ async function desbloquearAssinatura() {
   const r = await SubscriptionService.alternarBloqueio(false, window._operadorNome);
   if (!r.ok) return alert('Erro: ' + r.error);
   alert('🔓 Sistema desbloqueado.');
+  carregarPainelAssinatura();
+}
+
+/**
+ * Concede uma liberação temporária de +1 dia — tem prioridade sobre
+ * qualquer bloqueio (manual ou automático) até a nova data calculada.
+ * Cliques repetidos acumulam dias em vez de resetar a liberação
+ * (ver calcularNovaLiberacao em subscriptionDateUtils.js).
+ */
+async function liberarMaisUmDiaAssinatura() {
+  const { getServerDate, calcularNovaLiberacao, formatarData } = window.SubscriptionDateUtils;
+
+  const cfg = await SubscriptionService.getAssinatura();
+  if (!cfg) return alert('Não foi possível carregar a assinatura.');
+
+  const hoje = await getServerDate(_SUPABASE_URL, _SUPABASE_KEY);
+  const nova = calcularNovaLiberacao(cfg, hoje);
+  const novaISO = nova.toISOString().split('T')[0];
+
+  if (!confirm(`Liberar acesso até ${formatarData(nova)}?`)) return;
+
+  const btn = document.querySelector('[onclick="liberarMaisUmDiaAssinatura()"]');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Liberando...'; }
+
+  const r = await SubscriptionService.liberarMaisUmDia(novaISO, window._operadorNome || 'adminMaster');
+
+  if (btn) { btn.disabled = false; btn.textContent = '🕐 Liberar +1 dia'; }
+
+  if (!r.ok) return alert('❌ Erro: ' + r.error);
+  alert(`🕐 Liberado até ${formatarData(nova)}.`);
   carregarPainelAssinatura();
 }
