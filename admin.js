@@ -1814,9 +1814,9 @@ async function _abrirSessaoCaixa(valorAbertura, descricao) {
   return data;
 }
 
-async function calcularFinanceiro() {
+async function calcularFinanceiro(forcar = false) {
   const abaFin = document.getElementById("financeiro");
-  if (!abaFin || !abaFin.classList.contains("active")) return;
+  if (!forcar && (!abaFin || !abaFin.classList.contains("active"))) return;
 
   const elInicio  = document.getElementById("fin-inicio");
   const elFim     = document.getElementById("fin-fim");
@@ -1896,23 +1896,19 @@ async function calcularFinanceiro() {
     peds = peds.filter((p) => !p.dados_factura?.ruc && !p.dados_factura?.ci);
 
   // ── 5. Movimentações de caixa ─────────────────────────────────────
-  let caixa = [];
-  if (_sessaoCaixaAtiva?.id) {
-    let caixaQuery = supa
-      .from("movimentacoes_caixa")
-      .select("*")
-      .eq("sessao_id", _sessaoCaixaAtiva.id);
-    if (!ehGestor) caixaQuery = caixaQuery.eq("usuario_email", emailAtual);
-    const { data: caixaData } = await caixaQuery;
-    caixa = caixaData || [];
-  } else if (ehGestor) {
-    const { data: caixaData } = await supa
-      .from("movimentacoes_caixa")
-      .select("*")
-      .gte("created_at", utcI)
-      .lte("created_at", utcF);
-    caixa = caixaData || [];
-  }
+  // CORRIGIDO: antes, sempre que havia uma sessão de caixa aberta, a busca
+  // ficava presa a essa sessão (sessao_id) e ignorava o período (utcI/utcF)
+  // escolhido no filtro — por isso "Filtrar por período" não trazia todas
+  // as despesas. Agora a busca usa SEMPRE o mesmo intervalo de datas
+  // aplicado aos pedidos, igual ao restante do relatório.
+  let caixaQuery = supa
+    .from("movimentacoes_caixa")
+    .select("*")
+    .gte("created_at", utcI)
+    .lte("created_at", utcF);
+  if (!ehGestor) caixaQuery = caixaQuery.eq("usuario_email", emailAtual);
+  const { data: caixaData } = await caixaQuery;
+  let caixa = caixaData || [];
 
   if (_sessaoCaixaAtiva) _verificarBloqueioCaixa(emailAtual);
 
@@ -1929,9 +1925,22 @@ async function calcularFinanceiro() {
   let custoEntregas = 0, qtdPedidos = 0;
   const motoMap = {};
 
+  // Classifica uma string de método de pagamento em um dos "baldes" do relatório.
+  // Usado tanto para pagamento único quanto para cada parte de um Multipagamento.
+  const _classificarMetodo = (m) => {
+    const s = (m || "").toLowerCase();
+    if (s.includes("pix")) return "pix";
+    if (s.includes("transfer")) return "transf";
+    if (s.includes("cartao") || s.includes("cartão")) return "cartao";
+    if (s.includes("efetivo") || s.includes("dinheiro")) return "efetivo";
+    if (s.includes("qr")) return "qr";
+    return "outro";
+  };
+
   peds.forEach((p) => {
     const pag = (p.forma_pagamento || "").toLowerCase();
     const isNaNota = pag === "nanota";
+    const isMultipagamento = pag === "multipagamento";
     const isQuitado = (p.obs_pagamento || "").toLowerCase().includes("[quitado");
 
     // ═══ PULAR: NaNota não quitado ou Mensalista ═══
@@ -1944,8 +1953,34 @@ async function calcularFinanceiro() {
     faturamento += val;
     qtdPedidos++;
 
-    // Acumula por método
-    if (pag.includes("pix")) {
+    // CORRIGIDO: pedidos com pagamento dividido (Multipagamento) antes só
+    // entravam no faturamento total e não em nenhum "balde" por método —
+    // por isso a soma de Dinheiro+Cartão+Pix+... nunca batia com o
+    // faturamento nem com o que realmente entrou de cada forma. Agora cada
+    // parte do multipagamento (salva em obs_pagamento como JSON) é somada
+    // no método correto.
+    if (isMultipagamento) {
+      let partes = [];
+      try { partes = JSON.parse(p.obs_pagamento || "[]"); } catch (_) { partes = []; }
+      if (Array.isArray(partes) && partes.length) {
+        partes.forEach((parte) => {
+          const pv = safeNum(parte.valor);
+          switch (_classificarMetodo(parte.metodo)) {
+            case "pix":     totalPix     += pv; break;
+            case "transf":  totalTransf  += pv; break;
+            case "cartao":  totalCartao  += pv; break;
+            case "efetivo": totalEfetivo += pv; break;
+            case "qr":      totalQrCelular += pv; break;
+            default:        totalNaNota  += pv; break; // método não identificado
+          }
+        });
+      } else {
+        // obs_pagamento sem JSON legível: não perde o valor, mas não dá
+        // pra saber o método — melhor deixar visível em "Na Nota" do que
+        // sumir silenciosamente do relatório.
+        totalNaNota += val;
+      }
+    } else if (pag.includes("pix")) {
       totalPix += val;
     } else if (pag.includes("transfer")) {
       totalTransf += val;
@@ -2001,6 +2036,7 @@ async function calcularFinanceiro() {
   setV("total-nanota",      fmt(totalNaNota));
   setV("total-qr",          fmt(totalQrCelular)); // id do elemento deve ser "total-qr"
   setV("total-fundo-abertura", fmt(fundoAbertura));
+  setV("total-sangria",     fmt(totalSangria));
   setV("card-qtd-pedidos",  qtdPedidos);
   setV("card-ticket-medio", fmt(qtdPedidos > 0 ? faturamento / qtdPedidos : 0));
 
@@ -2021,20 +2057,33 @@ async function calcularFinanceiro() {
   }
 
   // ── Tabelas de despesas e motoboys (mantido) ──────────────────────
+  // CORRIGIDO: a sangria retirada do caixa não aparecia em nenhuma lista do
+  // relatório (só entrava, escondida, dentro do total de "Saídas"). Agora
+  // ela também aparece nesta tabela, identificada com o rótulo "💸 Sangria",
+  // para constar no relatório mesmo depois de a retirada ter sido feita.
   const tbD = document.getElementById("lista-despesas-caixa");
   if (tbD) {
-    const despesas = (caixa || []).filter((c) => c.tipo === "despesa");
+    const despesasEExtratos = (caixa || []).filter((c) => c.tipo === "despesa" || c.tipo === "sangria");
     const _DLABELS = {
       despesas_gerais:"📦 Despesas Gerais", contas_fixas:"🏠 Contas Fixas",
       pagamento_fornecedor:"🤝 Fornecedor",  pagamento_funcionario:"👷 Funcionário",
       pagamento_terceiros:"👥 Terceiros",    manutencao:"🔧 Manutenção",
       retirada:"💵 Retirada", motoboy:"🛵 Motoboy", outro:"✏️ Outro",
     };
-    if (!despesas.length) {
-      tbD.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;padding:16px">Nenhuma despesa nesta sessão</td></tr>';
+    if (!despesasEExtratos.length) {
+      tbD.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;padding:16px">Nenhuma despesa no período</td></tr>';
     } else {
-      tbD.innerHTML = despesas.map((d) => {
+      tbD.innerHTML = despesasEExtratos.map((d) => {
         const dt = new Date(d.created_at).toLocaleString("pt-BR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" });
+        if (d.tipo === "sangria") {
+          const obs = d.descricao || "";
+          return `<tr>
+            <td style="white-space:nowrap;color:#666;font-size:0.82rem">${dt}</td>
+            <td><span style="background:#fdf0e0;color:#a9660d;padding:2px 7px;border-radius:10px;font-size:0.78rem">💸 Sangria</span></td>
+            <td style="color:#555;font-size:0.85rem">${obs}</td>
+            <td style="text-align:right;font-weight:700;color:#c0392b;white-space:nowrap">${fmt(d.valor)}</td>
+            <td style="text-align:center;white-space:nowrap;color:#aaa;font-size:0.78rem">retirada</td></tr>`;
+        }
         const tipoLabel = _DLABELS[d.tipo_despesa] || d.tipo_despesa || "—";
         const descExtra = d.tipo_despesa === "outro" && d.descricao_outro ? ` (${d.descricao_outro})` : "";
         const obs = d.descricao || "";
@@ -2051,6 +2100,20 @@ async function calcularFinanceiro() {
       }).join("");
     }
   }
+
+  // ── NOVO: filtro "Somente despesas" ────────────────────────────────
+  // Quando marcado, esconde os cards de vendas/faturamento e deixa em
+  // destaque somente a tabela de despesas (+ sangrias) do período filtrado.
+  const _elSomenteDespesas = document.getElementById("fin-somente-despesas");
+  const _somenteDespesas = !!_elSomenteDespesas?.checked;
+  const _kpiGrids = abaFin.querySelectorAll(".kpi-grid");
+  _kpiGrids.forEach((g) => {
+    const wrapCard = g.closest(".card");
+    if (wrapCard) wrapCard.style.display = _somenteDespesas ? "none" : "";
+    else g.style.display = _somenteDespesas ? "none" : "";
+  });
+  if (_elSecMotoboys) _elSecMotoboys.style.display = (_somenteDespesas || !ehGestor) ? "none" : "";
+  if (_elSecDespesas) _elSecDespesas.style.display = ehGestor ? "" : "none";
 
   const tbM = document.getElementById("lista-financeiro-motoboys");
   if (tbM) {
@@ -2074,6 +2137,13 @@ async function calcularFinanceiro() {
 }
 
 // ── Verifica bloqueio por sangria limite ───────────────────────────
+// CORRIGIDO: a versão anterior somava apenas movimentações de caixa do tipo
+// "efetivo", mas esse tipo NUNCA é gravado pelo sistema (vendas não geram
+// uma linha em movimentacoes_caixa) — então o dinheiro que efetivamente
+// entra vendendo nunca contava para o limite, e a sangria praticamente
+// nunca disparava. Agora somamos: fundo de abertura + suprimentos + vendas
+// em dinheiro do dia (inclui a fatia em dinheiro de pedidos com
+// Multipagamento) − sangrias já retiradas − despesas pagas do caixa.
 async function _verificarBloqueioCaixa(emailAtual) {
   const { data: cfg } = await supa
     .from("configuracoes")
@@ -2087,6 +2157,19 @@ async function _verificarBloqueioCaixa(emailAtual) {
   const dStr = hoje.toISOString().split("T")[0];
   const dIni = new Date(new Date(dStr + "T00:00:00").getTime() + _tz).toISOString();
   const dFim = new Date(new Date(dStr + "T23:59:59").getTime() + _tz).toISOString();
+
+  const safeNum = (v) => {
+    if (!v) return 0;
+    if (typeof v === "number") return v;
+    return parseFloat(v.toString().replace(/[^\d.,-]/g, "").replace(",", ".")) || 0;
+  };
+  const _classificarMetodo = (m) => {
+    const s = (m || "").toLowerCase();
+    if (s.includes("efetivo") || s.includes("dinheiro")) return "efetivo";
+    return "outro";
+  };
+
+  // 1. Aberturas, suprimentos, sangrias e despesas do dia (retiradas/entradas manuais)
   const { data: movs } = await supa
     .from("movimentacoes_caixa")
     .select("tipo, valor")
@@ -2096,14 +2179,34 @@ async function _verificarBloqueioCaixa(emailAtual) {
 
   let efetivo = 0;
   (movs || []).forEach((m) => {
-    const v = parseFloat(m.valor) || 0;
-    if (
-      m.tipo === "efetivo" ||
-      m.tipo === "abertura" ||
-      m.tipo === "suprimento"
-    )
-      efetivo += v;
-    if (m.tipo === "sangria") efetivo -= v;
+    const v = safeNum(m.valor);
+    if (m.tipo === "abertura" || m.tipo === "suprimento") efetivo += v;
+    if (m.tipo === "sangria" || m.tipo === "despesa") efetivo -= v;
+  });
+
+  // 2. Vendas em dinheiro do dia (contas do próprio operador quando aplicável)
+  let pedQuery = supa
+    .from("pedidos")
+    .select("forma_pagamento, obs_pagamento, total_geral, garcom_id")
+    .in("status", ["entregue", "em_preparo", "pronto_entrega", "saiu_entrega"])
+    .gte("created_at", dIni)
+    .lte("created_at", dFim);
+  if (_perfilId) pedQuery = pedQuery.eq("garcom_id", _perfilId);
+  const { data: pedidosDia } = await pedQuery;
+
+  (pedidosDia || []).forEach((p) => {
+    const pag = (p.forma_pagamento || "").toLowerCase();
+    if (pag === "multipagamento") {
+      let partes = [];
+      try { partes = JSON.parse(p.obs_pagamento || "[]"); } catch (_) { partes = []; }
+      (Array.isArray(partes) ? partes : []).forEach((parte) => {
+        if (_classificarMetodo(parte.metodo) === "efetivo") {
+          efetivo += safeNum(parte.valor);
+        }
+      });
+    } else if (_classificarMetodo(pag) === "efetivo") {
+      efetivo += safeNum(p.total_geral);
+    }
   });
 
   const status = cfg.caixa_status || {};
@@ -2643,8 +2746,19 @@ async function fecharCaixaResumo() {
     return;
   }
 
-  // Recalcula para garantir dados atualizados
-  await calcularFinanceiro();
+  // CORRIGIDO: "Fechar Dia" fica no painel do PDV, não na aba Financeiro.
+  // calcularFinanceiro() só recalculava quando a aba Financeiro estava
+  // visível na tela — por isso o fechamento vinha com tudo zerado. Também
+  // limpamos qualquer filtro de período deixado na aba Financeiro para
+  // garantir que o fechamento reflita exatamente a sessão de caixa atual,
+  // e não um período antigo que o gestor tenha filtrado antes.
+  const _elFinIni = document.getElementById('fin-inicio');
+  const _elFinFim = document.getElementById('fin-fim');
+  if (_elFinIni) _elFinIni.value = '';
+  if (_elFinFim) _elFinFim.value = '';
+
+  // Recalcula para garantir dados atualizados (forçado, mesmo fora da aba Financeiro)
+  await calcularFinanceiro(true);
   const s = _caixaState;
   const fmt = (n) => 'Gs ' + n.toLocaleString('es-PY');
   const lucro = s.faturamento + s.totalEntradas - s.custoEntregas - s.totalSaidas;
@@ -2681,6 +2795,7 @@ async function fecharCaixaResumo() {
         <div style="display:flex; justify-content:space-between;"><span>📦 Pedidos:</span>${s.qtdPedidos}</div>
         <div style="display:flex; justify-content:space-between;"><span>🏍️ Custo Entregas:</span>${fmt(s.custoEntregas)}</div>
         <div style="display:flex; justify-content:space-between;"><span>💸 Saídas (despesas):</span>${fmt(s.totalSaidas)}</div>
+        <div style="display:flex; justify-content:space-between; padding-left:12px; color:#c0392b"><span>└ Sangria retirada:</span>${fmt(s.totalSangria || 0)}</div>
         <div style="display:flex; justify-content:space-between;"><span>➕ Entradas (incl. fundo):</span>${fmt(s.totalEntradas)}</div>
         <div style="display:flex; justify-content:space-between; padding-left:12px;"><span>└ Fundo de abertura:</span>${fmt(s.fundoAbertura)}</div>
         <hr>
@@ -9962,6 +10077,23 @@ function _coletarMultiPagamentoPDV() {
 }
 
 async function salvarPedidoBalcao() {
+  // CORRIGIDO: o bloqueio por limite de sangria nunca impedia uma venda de
+  // ser finalizada — só bloqueava lançamentos manuais no caixa (suprimento/
+  // despesa). Agora nenhuma venda é concluída enquanto o caixa do operador
+  // estiver bloqueado por sangria.
+  {
+    const _emailAtualPDV = document.getElementById("user-email")?.innerText || "";
+    const { data: _cfgBloqueio } = await supa
+      .from("configuracoes")
+      .select("caixa_status")
+      .maybeSingle();
+    const _statusBloqueio = _cfgBloqueio?.caixa_status || {};
+    if (_statusBloqueio[_emailAtualPDV]?.bloqueado) {
+      alert("⛔ Caixa bloqueado por sangria. Solicite autorização de um gestor (dono/gerente) para reabrir antes de continuar vendendo.");
+      return;
+    }
+  }
+
   if (carrinhoPDV.length === 0 && !window._mesaAbertaId)
     return alert(t("alert.carrinho_vazio"));
   if (carrinhoPDV.length === 0 && window._mesaAbertaId)
@@ -12934,49 +13066,6 @@ async function registrarMovimentacaoCaixa({
   }
   if (!usuario_email) {
     // tenta pegar do elemento da UI
-    usuario_email = document.getElementById('user-email')?.innerText || 'sistema';
-  }
-
-  const payload = {
-    tipo,
-    valor,
-    descricao: descricao || '',
-    usuario_email,
-    sessao_id,
-    forma_pagamento: forma_pagamento || null,
-    tipo_despesa: tipo_despesa || null,
-    descricao_outro: descricao_outro || null,
-    created_at: new Date().toISOString()
-  };
-
-  const { error } = await supa
-    .from('movimentacoes_caixa')
-    .insert([payload]);
-
-  if (error) {
-    console.error('Erro ao registrar movimentação:', error);
-    return false;
-  }
-  return true;
-}async function registrarMovimentacaoCaixa({ 
-  tipo, 
-  valor, 
-  descricao, 
-  usuario_email, 
-  sessao_id, 
-  forma_pagamento = null,
-  tipo_despesa = null,
-  descricao_outro = null
-}) {
-  if (!sessao_id) {
-    console.error('registrarMovimentacaoCaixa: sessao_id é obrigatório');
-    return false;
-  }
-  if (!valor || valor <= 0) {
-    console.error('registrarMovimentacaoCaixa: valor deve ser > 0');
-    return false;
-  }
-  if (!usuario_email) {
     usuario_email = document.getElementById('user-email')?.innerText || 'sistema';
   }
 

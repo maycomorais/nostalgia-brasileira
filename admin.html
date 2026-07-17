@@ -869,6 +869,14 @@
       </select>
     </div>
 
+    <!-- NOVO FILTRO: somente despesas -->
+    <div class="filtro-group" style="align-self:flex-end;padding-bottom:11px">
+      <label style="display:flex;align-items:center;gap:6px;font-weight:600;cursor:pointer">
+        <input type="checkbox" id="fin-somente-despesas" onchange="calcularFinanceiro()" style="width:16px;height:16px;cursor:pointer">
+        🧾 Somente despesas
+      </label>
+    </div>
+
     <button class="btn-filtrar" onclick="calcularFinanceiro()">
       <i class="fas fa-filter"></i> Filtrar
     </button>
@@ -980,9 +988,12 @@
   <div id="secao-despesas-caixa" class="card" style="margin-top: 20px; padding: 0;">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #f0f0f0">
       <h3 style="margin:0;color:#444;font-size:0.95rem">🧾 Despesas do Período</h3>
-      <button onclick="abrirModalCaixa('despesa')" class="btn btn-danger" style="font-size:0.83rem;padding:7px 14px">
-        <i class="fas fa-plus"></i> Nova Despesa
-      </button>
+      <div style="display:flex;align-items:center;gap:14px">
+        <span style="font-size:0.82rem;color:#a9660d;font-weight:600">💸 Sangria do período: <span id="total-sangria">Gs 0</span></span>
+        <button onclick="abrirModalCaixa('despesa')" class="btn btn-danger" style="font-size:0.83rem;padding:7px 14px">
+          <i class="fas fa-plus"></i> Nova Despesa
+        </button>
+      </div>
     </div>
     <div style="overflow-x:auto">
       <table class="table" style="margin:0;font-size:0.88rem">
