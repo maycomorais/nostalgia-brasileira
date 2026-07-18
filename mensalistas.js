@@ -354,6 +354,31 @@ async function mensSalvarPlano() {
   // Quantidade é opcional — 0 significa plano apenas por valor/saldo
   if (valor <= 0)     { alert(t('mens.alerta_valor', 'Insira o valor do plano.')); return; }
 
+  const planoAtual = id ? _mens_planos.find(p => p.id == id) : null;
+
+  // NOVO: dinheiro novo que está efetivamente entrando agora — plano novo:
+  // o valor cheio; plano existente: só a diferença, se o valor subiu
+  // (reforço/recarga de saldo). Se o valor não mudou ou caiu, não há
+  // dinheiro novo entrando, então não pedimos forma de pagamento nem
+  // lançamos nada no caixa.
+  const valorACobrar = planoAtual
+    ? Math.max(0, valor - (planoAtual.valor_plano || 0))
+    : valor;
+
+  let formaPag = null;
+  if (valorACobrar > 0) {
+    // Antes, a criação/reforço de um plano de mensalista não gerava
+    // nenhum lançamento financeiro — o valor pago pelo cliente não
+    // aparecia em lugar nenhum do Financeiro. Agora, igual ao fluxo de
+    // quitação de Nota, exigimos caixa aberto e a forma de pagamento.
+    if (!_sessaoCaixaAtiva) {
+      alert('⚠️ Não há caixa aberto. Abra o caixa antes de registrar o pagamento do plano.');
+      return;
+    }
+    formaPag = await _notasModalFormaPagamento();
+    if (!formaPag) return; // cancelou — não salva sem definir a forma de pagamento
+  }
+
   const payload = {
     cliente_id,
     produto_nome,
@@ -367,7 +392,6 @@ async function mensSalvarPlano() {
 
   let error;
   if (id) {
-    const planoAtual = _mens_planos.find(p => p.id == id);
     if (planoAtual && qtd_total !== planoAtual.quantidade_total) {
       const diferenca = qtd_total - planoAtual.quantidade_total;
       payload.quantidade_restante = Math.max(0, planoAtual.quantidade_restante + diferenca);
@@ -387,6 +411,27 @@ async function mensSalvarPlano() {
   }
 
   if (error) { alert(t('mens.erro_salvar', 'Erro ao salvar: ') + error.message); return; }
+
+  // NOVO: registra a entrada no caixa/financeiro com a forma de pagamento escolhida
+  if (valorACobrar > 0 && formaPag) {
+    const clienteNome   = _mens_clientes.find(c => c.id === cliente_id)?.nome || 'Cliente';
+    const usuario_email = document.getElementById('user-email')?.innerText || 'admin';
+    const descricao = planoAtual
+      ? `Mensalista - Reforço de saldo: ${produto_nome} (${clienteNome}) - Forma: ${formaPag}`
+      : `Mensalista - Novo plano: ${produto_nome} (${clienteNome}) - Forma: ${formaPag}`;
+    const sucesso = await registrarMovimentacaoCaixa({
+      tipo: 'entrada',
+      valor: valorACobrar,
+      descricao,
+      usuario_email,
+      sessao_id: _sessaoCaixaAtiva.id,
+      forma_pagamento: formaPag,
+    });
+    if (!sucesso) {
+      alert('⚠️ Plano salvo, mas houve erro ao registrar no caixa. Verifique manualmente.');
+    }
+  }
+
   fecharModal('modal-mens-plano');
   mensCarregarPlanos();
 }

@@ -1719,6 +1719,102 @@ async function carregarCozinha() {
 // =========================================
 // 6. FINANCEIRO
 // =========================================
+// ── Helpers de classificação financeira ────────────────────────────
+// Fonte ÚNICA da verdade sobre "qual foi o método de pagamento real de um
+// pedido". Usada pelo cálculo do Financeiro E por todas as
+// exportações/relatórios (CSV, XLSX, PDF), para que os números batam entre
+// a tela e qualquer relatório exportado.
+//
+// Por que isso é necessário: pedidos.forma_pagamento NÃO reflete o método
+// real em dois casos:
+//  - Nota quitada: forma_pagamento fica sempre "NaNota"; o método real
+//    escolhido na quitação fica em forma_pagamento_quitacao.
+//  - Multipagamento: forma_pagamento fica "Multipagamento"; os métodos e
+//    valores reais de cada parte ficam em obs_pagamento (JSON).
+function finClassificarMetodo(m) {
+  const s = (m || "").toLowerCase();
+  if (s.includes("pix")) return "pix";
+  if (s.includes("transfer")) return "transf";
+  if (s.includes("cartao") || s.includes("cartão")) return "cartao";
+  if (s.includes("efetivo") || s.includes("dinheiro")) return "efetivo";
+  if (s.includes("qr")) return "qr";
+  return "outro";
+}
+
+function finEhQuitado(p) {
+  return (p.obs_pagamento || "").toLowerCase().includes("[quitado");
+}
+
+function finPartesMultipagamento(p) {
+  try {
+    const partes = JSON.parse(p.obs_pagamento || "[]");
+    return Array.isArray(partes) ? partes : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+// Um pedido só é receita reconhecida quando o dinheiro já entrou de fato:
+// Nota não quitada ainda não recebeu nada, e vendas para Mensalista já
+// foram pagas antecipadamente na compra do plano (não contam de novo aqui).
+function finPedidoContaComoReceita(p) {
+  const pag = (p.forma_pagamento || "").toLowerCase();
+  if (pag === "mensalista") return false;
+  if (pag === "nanota" && !finEhQuitado(p)) return false;
+  return true;
+}
+
+// True se o pedido teve, de fato, alguma parte recebida no método-alvo.
+function finPedidoTemMetodo(p, bucketAlvo) {
+  const pag = (p.forma_pagamento || "").toLowerCase();
+  if (pag === "multipagamento") {
+    return finPartesMultipagamento(p).some((parte) => finClassificarMetodo(parte.metodo) === bucketAlvo);
+  }
+  if (pag === "nanota") {
+    if (!finEhQuitado(p)) return false;
+    return finClassificarMetodo(p.forma_pagamento_quitacao) === bucketAlvo;
+  }
+  return finClassificarMetodo(pag) === bucketAlvo;
+}
+
+// Valor do pedido atribuível a um método específico (para totalizações por
+// método em exportações). Para Multipagamento, soma só a(s) parte(s) daquele
+// método — não o pedido inteiro.
+function finValorNoMetodo(p, bucketAlvo) {
+  const pag = (p.forma_pagamento || "").toLowerCase();
+  const val = parseFloat(p.total_geral) || 0;
+  if (pag === "multipagamento") {
+    return finPartesMultipagamento(p)
+      .filter((parte) => finClassificarMetodo(parte.metodo) === bucketAlvo)
+      .reduce((a, parte) => a + (parseFloat(parte.valor) || 0), 0);
+  }
+  if (pag === "nanota") {
+    if (!finEhQuitado(p)) return 0;
+    return finClassificarMetodo(p.forma_pagamento_quitacao) === bucketAlvo ? val : 0;
+  }
+  return finClassificarMetodo(pag) === bucketAlvo ? val : 0;
+}
+
+// Texto legível da forma de pagamento efetivamente recebida — para colunas
+// de exportação/relatório (CSV, PDF), em vez do valor cru de forma_pagamento.
+function finFormaEfetivaLabel(p) {
+  const pag = (p.forma_pagamento || "").toLowerCase();
+  if (pag === "multipagamento") {
+    const partes = finPartesMultipagamento(p);
+    if (partes.length) {
+      return "Multi: " + partes.map((x) => `${x.metodo} (${Math.round(parseFloat(x.valor) || 0).toLocaleString("es-PY")})`).join(" + ");
+    }
+    return p.forma_pagamento || "";
+  }
+  if (pag === "nanota") {
+    if (finEhQuitado(p) && p.forma_pagamento_quitacao) {
+      return `${p.forma_pagamento_quitacao} (Nota quitada)`;
+    }
+    return finEhQuitado(p) ? "Na Nota (quitado, forma não registrada)" : "Na Nota (em aberto)";
+  }
+  return p.forma_pagamento || "";
+}
+
 // Estado persistente do último cálculo financeiro
 let _caixaState = {
   faturamento: 0,
@@ -1732,6 +1828,7 @@ let _caixaState = {
   totalNaNota: 0,
   fundoAbertura: 0,
   qtdPedidos: 0,
+  qNaNota: { pix: 0, transf: 0, cartao: 0, efetivo: 0, qr: 0 },
 };
 
 // Sessão de caixa ativa (carregada ao abrir a aba financeiro)
@@ -1875,7 +1972,18 @@ async function calcularFinanceiro(forcar = false) {
   const _elSecMotoboys = document.getElementById("secao-motoboys-financeiro");
   if (_elSecMotoboys) _elSecMotoboys.style.display = ehGestor ? "" : "none";
 
+  // (Classificação de método de pagamento agora vem das funções globais
+  // finClassificarMetodo / finPedidoTemMetodo / finValorNoMetodo, definidas
+  // no topo da seção Financeiro — mesma lógica usada nas exportações.)
+
   // ── 4. Busca pedidos dentro da janela da sessão ───────────────────
+  // CORRIGIDO: o filtro de "Pagamento" comparava direto com a coluna
+  // forma_pagamento do pedido — que para notas quitadas continua sempre
+  // "NaNota" (a forma real fica em forma_pagamento_quitacao) e para
+  // pagamento dividido é sempre "Multipagamento". Isso fazia o filtro
+  // esconder pedidos que, na prática, tinham sido recebidos naquele método.
+  // Agora a busca traz tudo dentro do período e o filtro é aplicado com
+  // base no método efetivamente recebido.
   let query = supa
     .from("pedidos")
     .select("*, motoboys(nome)")
@@ -1883,12 +1991,15 @@ async function calcularFinanceiro(forcar = false) {
     .gte("created_at", utcI)
     .lte("created_at", utcF);
 
-  if (tipoFiltro !== "todos") query = query.eq("forma_pagamento", tipoFiltro);
-
   if (!ehGestor && _perfilId) query = query.eq("garcom_id", _perfilId);
 
   const { data: pedidos } = await query;
   let peds = pedidos || [];
+
+  if (tipoFiltro !== "todos") {
+    const bucketAlvo = finClassificarMetodo(tipoFiltro);
+    peds = peds.filter((p) => finPedidoTemMetodo(p, bucketAlvo));
+  }
 
   if (facturaFiltro === "com_factura")
     peds = peds.filter((p) => p.dados_factura?.ruc || p.dados_factura?.ci);
@@ -1925,73 +2036,42 @@ async function calcularFinanceiro(forcar = false) {
   let custoEntregas = 0, qtdPedidos = 0;
   const motoMap = {};
 
-  // Classifica uma string de método de pagamento em um dos "baldes" do relatório.
-  // Usado tanto para pagamento único quanto para cada parte de um Multipagamento.
-  const _classificarMetodo = (m) => {
-    const s = (m || "").toLowerCase();
-    if (s.includes("pix")) return "pix";
-    if (s.includes("transfer")) return "transf";
-    if (s.includes("cartao") || s.includes("cartão")) return "cartao";
-    if (s.includes("efetivo") || s.includes("dinheiro")) return "efetivo";
-    if (s.includes("qr")) return "qr";
-    return "outro";
-  };
+  // Acumula, por método, quanto do total veio de uma quitação de Nota — usado
+  // só para a indicação visual "📋 inclui Gs X de Nota quitada" nos cards.
+  const qNaNota = { pix: 0, transf: 0, cartao: 0, efetivo: 0, qr: 0 };
 
   peds.forEach((p) => {
-    const pag = (p.forma_pagamento || "").toLowerCase();
-    const isNaNota = pag === "nanota";
-    const isMultipagamento = pag === "multipagamento";
-    const isQuitado = (p.obs_pagamento || "").toLowerCase().includes("[quitado");
-
-    // ═══ PULAR: NaNota não quitado ou Mensalista ═══
-    if ((isNaNota && !isQuitado) || pag === "mensalista") {
-      // Não soma ao faturamento nem conta como pedido
-      return;
-    }
+    // ═══ PULAR: NaNota não quitado ou Mensalista (ainda não é receita) ═══
+    if (!finPedidoContaComoReceita(p)) return;
 
     const val = safeNum(p.total_geral);
     faturamento += val;
     qtdPedidos++;
 
-    // CORRIGIDO: pedidos com pagamento dividido (Multipagamento) antes só
-    // entravam no faturamento total e não em nenhum "balde" por método —
-    // por isso a soma de Dinheiro+Cartão+Pix+... nunca batia com o
-    // faturamento nem com o que realmente entrou de cada forma. Agora cada
-    // parte do multipagamento (salva em obs_pagamento como JSON) é somada
-    // no método correto.
-    if (isMultipagamento) {
-      let partes = [];
-      try { partes = JSON.parse(p.obs_pagamento || "[]"); } catch (_) { partes = []; }
-      if (Array.isArray(partes) && partes.length) {
-        partes.forEach((parte) => {
-          const pv = safeNum(parte.valor);
-          switch (_classificarMetodo(parte.metodo)) {
-            case "pix":     totalPix     += pv; break;
-            case "transf":  totalTransf  += pv; break;
-            case "cartao":  totalCartao  += pv; break;
-            case "efetivo": totalEfetivo += pv; break;
-            case "qr":      totalQrCelular += pv; break;
-            default:        totalNaNota  += pv; break; // método não identificado
-          }
-        });
-      } else {
-        // obs_pagamento sem JSON legível: não perde o valor, mas não dá
-        // pra saber o método — melhor deixar visível em "Na Nota" do que
-        // sumir silenciosamente do relatório.
-        totalNaNota += val;
-      }
-    } else if (pag.includes("pix")) {
-      totalPix += val;
-    } else if (pag.includes("transfer")) {
-      totalTransf += val;
-    } else if (pag.includes("cartao") || pag.includes("cartão")) {
-      totalCartao += val;
-    } else if (pag.includes("efetivo") || pag.includes("dinheiro")) {
-      totalEfetivo += val;
-    } else if (isNaNota && isQuitado) {
-      totalNaNota += val; // só quitados
-    } else if (pag.includes("qr") || pag === "qr celular" || pag === "qqmaquina") {
-      totalQrCelular += val;
+    // CORRIGIDO: cada balde agora vem de finValorNoMetodo, a MESMA função
+    // usada nas exportações — cobre pagamento direto, quitação de Nota
+    // (via forma_pagamento_quitacao) e cada parte de um Multipagamento.
+    // Isso garante que Dinheiro+Cartão+Pix+Transf+QR+NaNota sempre soma
+    // exatamente o faturamento, não importa a forma de pagamento.
+    const vPix     = finValorNoMetodo(p, "pix");
+    const vTransf  = finValorNoMetodo(p, "transf");
+    const vCartao  = finValorNoMetodo(p, "cartao");
+    const vEfetivo = finValorNoMetodo(p, "efetivo");
+    const vQr      = finValorNoMetodo(p, "qr");
+    totalPix += vPix; totalTransf += vTransf; totalCartao += vCartao;
+    totalEfetivo += vEfetivo; totalQrCelular += vQr;
+
+    // Sobra não classificada (ex.: multipagamento com método desconhecido,
+    // ou quitação antiga sem forma_pagamento_quitacao registrada) — cai em
+    // "Na Nota" para não desaparecer silenciosamente do relatório.
+    const restante = val - (vPix + vTransf + vCartao + vEfetivo + vQr);
+    if (restante > 0.01) totalNaNota += restante;
+
+    // Indicação visual: quanto desse pedido veio de uma Nota quitada
+    const pag = (p.forma_pagamento || "").toLowerCase();
+    if (pag === "nanota" && finEhQuitado(p)) {
+      qNaNota.pix += vPix; qNaNota.transf += vTransf; qNaNota.cartao += vCartao;
+      qNaNota.efetivo += vEfetivo; qNaNota.qr += vQr;
     }
 
     // Custo entregas (somente delivery)
@@ -2021,7 +2101,7 @@ async function calcularFinanceiro(forcar = false) {
 
   _caixaState = { faturamento, custoEntregas, totalSaidas, totalEntradas,
                   totalPix, totalTransf, totalCartao, totalEfetivo, totalNaNota,
-                  totalQrCelular, qtdPedidos, totalSangria, fundoAbertura };
+                  totalQrCelular, qtdPedidos, totalSangria, fundoAbertura, qNaNota };
 
   const lucro = faturamento + totalEntradas - custoEntregas - totalSaidas;
   const setV  = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v; };
@@ -2039,6 +2119,23 @@ async function calcularFinanceiro(forcar = false) {
   setV("total-sangria",     fmt(totalSangria));
   setV("card-qtd-pedidos",  qtdPedidos);
   setV("card-ticket-medio", fmt(qtdPedidos > 0 ? faturamento / qtdPedidos : 0));
+
+  // NOVO: indicação visual de quanto, em cada método, veio de uma nota quitada
+  const _mostrarOrigemNota = (badgeId, valorId, valor) => {
+    const badge = document.getElementById(badgeId);
+    if (!badge) return;
+    if (valor > 0) {
+      setV(valorId, fmt(valor));
+      badge.style.display = "";
+    } else {
+      badge.style.display = "none";
+    }
+  };
+  _mostrarOrigemNota("total-pix-nanota-label",      "total-pix-nanota",      qNaNota.pix);
+  _mostrarOrigemNota("total-transf-nanota-label",   "total-transf-nanota",   qNaNota.transf);
+  _mostrarOrigemNota("total-cartao-nanota-label",   "total-cartao-nanota",   qNaNota.cartao);
+  _mostrarOrigemNota("total-efetivo-nanota-label",  "total-efetivo-nanota",  qNaNota.efetivo);
+  _mostrarOrigemNota("total-qr-nanota-label",       "total-qr-nanota",       qNaNota.qr);
 
   // Badge do operador / info da sessão
   const badgeCaixa = document.getElementById("badge-caixa-operador");
@@ -2163,11 +2260,8 @@ async function _verificarBloqueioCaixa(emailAtual) {
     if (typeof v === "number") return v;
     return parseFloat(v.toString().replace(/[^\d.,-]/g, "").replace(",", ".")) || 0;
   };
-  const _classificarMetodo = (m) => {
-    const s = (m || "").toLowerCase();
-    if (s.includes("efetivo") || s.includes("dinheiro")) return "efetivo";
-    return "outro";
-  };
+  // Usa a mesma classificação global (finClassificarMetodo) que o Financeiro
+  // e as exportações — aqui só nos interessa se caiu no balde "efetivo".
 
   // 1. Aberturas, suprimentos, sangrias e despesas do dia (retiradas/entradas manuais)
   const { data: movs } = await supa
@@ -2200,11 +2294,11 @@ async function _verificarBloqueioCaixa(emailAtual) {
       let partes = [];
       try { partes = JSON.parse(p.obs_pagamento || "[]"); } catch (_) { partes = []; }
       (Array.isArray(partes) ? partes : []).forEach((parte) => {
-        if (_classificarMetodo(parte.metodo) === "efetivo") {
+        if (finClassificarMetodo(parte.metodo) === "efetivo") {
           efetivo += safeNum(parte.valor);
         }
       });
-    } else if (_classificarMetodo(pag) === "efetivo") {
+    } else if (finClassificarMetodo(pag) === "efetivo") {
       efetivo += safeNum(p.total_geral);
     }
   });
@@ -2259,79 +2353,88 @@ async function autorizarReaberturaCaixa(emailAlvo) {
   calcularFinanceiro();
 }
 
-async function exportarFinanceiro() {
-  // 1. Pega os mesmos filtros da tela
+// ── Busca pedidos para exportação (CSV/XLSX), usando os MESMOS filtros
+// (período, forma de pagamento, factura) e a MESMA classificação de método
+// de pagamento usadas no cálculo do Financeiro — garante que o que é
+// exportado sempre bate com o que aparece na tela.
+async function _finBuscarPedidosExport() {
   const elInicio = document.getElementById("fin-inicio");
   const elFim = document.getElementById("fin-fim");
   const elTipo = document.getElementById("fin-tipo");
   const elFactura = document.getElementById("fin-factura");
 
-  const inicio = elInicio.value;
-  const fim = elFim.value;
+  const inicio = elInicio?.value;
+  const fim = elFim?.value;
   const tipoFiltro = elTipo ? elTipo.value : "todos";
   const facturaFiltro = elFactura ? elFactura.value : "todos";
 
-  // Define período
-  const hoje = new Date();
-  const ano = hoje.getFullYear();
-  const mes = String(hoje.getMonth() + 1).padStart(2, "0");
-  const dia = String(hoje.getDate()).padStart(2, "0");
+  // UTC-3 PY (horario de verao permanente desde 2024) — mesmo cálculo de
+  // período usado em calcularFinanceiro, em vez de uma string local "solta".
+  const _tz = 3 * 60 * 60 * 1000;
+  const hoje = new Date().toISOString().split("T")[0];
+  const iniStr = inicio || hoje;
+  const fimStr = fim || hoje;
+  const dataInicio = new Date(new Date(iniStr + "T00:00:00").getTime() + _tz).toISOString();
+  const dataFim    = new Date(new Date(fimStr + "T23:59:59").getTime() + _tz).toISOString();
 
-  let dataInicio, dataFim;
-  if (inicio && fim) {
-    dataInicio = inicio + " 00:00:00";
-    dataFim = fim + " 23:59:59";
-  } else {
-    dataInicio = `${ano}-${mes}-${dia} 00:00:00`;
-    dataFim = `${ano}-${mes}-${dia} 23:59:59`;
-  }
-
-  // 2. Busca os dados
-  let query = supa
+  // CORRIGIDO: usava .eq("status","entregue") só — diferente da lista de
+  // status usada na tela do Financeiro (entregue/em_preparo/pronto_entrega/
+  // saiu_entrega), fazendo o total exportado não bater com o exibido.
+  const { data: pedidos, error } = await supa
     .from("pedidos")
     .select("*")
-    .eq("status", "entregue")
+    .in("status", ["entregue", "em_preparo", "pronto_entrega", "saiu_entrega"])
     .gte("created_at", dataInicio)
     .lte("created_at", dataFim);
 
-  if (tipoFiltro !== "todos") {
-    query = query.eq("forma_pagamento", tipoFiltro);
-  }
-
-  const { data: pedidos, error } = await query;
-
   if (error) {
     alert("Erro ao buscar dados: " + error.message);
-    return;
+    return null;
   }
 
-  if (!pedidos || pedidos.length === 0) {
+  // CORRIGIDO: exportação incluía Notas em aberto (ainda não pagas) e vendas
+  // para Mensalista (já pagas na compra do plano) como se fossem receita —
+  // agora segue a mesma regra do Financeiro.
+  let peds = (pedidos || []).filter(finPedidoContaComoReceita);
+
+  // CORRIGIDO: filtrava comparando direto com forma_pagamento — não
+  // enxergava notas quitadas nem pagamentos divididos no método certo.
+  if (tipoFiltro !== "todos") {
+    const bucketAlvo = finClassificarMetodo(tipoFiltro);
+    peds = peds.filter((p) => finPedidoTemMetodo(p, bucketAlvo));
+  }
+
+  if (facturaFiltro === "com_factura") {
+    peds = peds.filter((p) => p.dados_factura?.ruc || p.dados_factura?.ci);
+  } else if (facturaFiltro === "sem_factura") {
+    peds = peds.filter((p) => !p.dados_factura?.ruc && !p.dados_factura?.ci);
+  }
+
+  return { peds, iniStr, fimStr };
+}
+
+async function exportarFinanceiro() {
+  const dados = await _finBuscarPedidosExport();
+  if (!dados) return;
+  const { peds, iniStr, fimStr } = dados;
+
+  if (!peds.length) {
     alert("Nenhum pedido encontrado no período selecionado.");
     return;
-  }
-
-  // 3. Filtra por factura se necessário
-  let pedidosFiltrados = pedidos;
-  if (facturaFiltro === "com_factura") {
-    pedidosFiltrados = pedidos.filter(
-      (p) => p.dados_factura && (p.dados_factura.ruc || p.dados_factura.ci),
-    );
-  } else if (facturaFiltro === "sem_factura") {
-    pedidosFiltrados = pedidos.filter(
-      (p) => !p.dados_factura || (!p.dados_factura.ruc && !p.dados_factura.ci),
-    );
   }
 
   // 4. Prepara dados para CSV
   let csv =
     "ID Pedido,Data/Hora,Cliente,Telefone,Tipo Entrega,Forma Pagamento,Subtotal,Frete,Total,RUC/CI,Razão Social\n";
 
-  pedidosFiltrados.forEach((p) => {
+  peds.forEach((p) => {
     const data = new Date(p.created_at).toLocaleString("pt-BR");
     const cliente = (p.cliente_nome || "").replace(/,/g, " "); // Remove vírgulas
     const telefone = p.cliente_telefone || "";
     const tipo = p.tipo_entrega || "";
-    const pagamento = p.forma_pagamento || "";
+    // CORRIGIDO: mostrava o forma_pagamento cru ("NaNota"/"Multipagamento")
+    // — agora mostra o método efetivamente recebido (ex.: "Pix (Nota quitada)").
+    const pagamento = finFormaEfetivaLabel(p).replace(/,/g, " ");
     const subtotal = p.subtotal || 0;
     const frete = p.frete_cobrado_cliente || 0;
     const total = p.total_geral || 0;
@@ -2349,7 +2452,7 @@ async function exportarFinanceiro() {
   link.setAttribute("href", url);
   link.setAttribute(
     "download",
-    `Relatorio_Financeiro_${ano}-${mes}-${dia}.csv`,
+    `Relatorio_Financeiro_${iniStr}_a_${fimStr}.csv`,
   );
   link.style.visibility = "hidden";
 
@@ -2358,15 +2461,13 @@ async function exportarFinanceiro() {
   document.body.removeChild(link);
 
   alert(
-    `✅ Relatório exportado com sucesso!\n\nTotal de pedidos: ${pedidosFiltrados.length}`,
+    `✅ Relatório exportado com sucesso!\n\nTotal de pedidos: ${peds.length}`,
   );
 }
 
 // =====================================================
 // ALTERNATIVA: EXPORTAR PARA EXCEL REAL (XLSX)
 // =====================================================
-// Se quiser usar biblioteca SheetJS para Excel verdadeiro:
-
 async function exportarFinanceiroXLSX() {
   // Aviso: Requer biblioteca SheetJS
   if (typeof XLSX === "undefined") {
@@ -2375,18 +2476,29 @@ async function exportarFinanceiroXLSX() {
     return;
   }
 
-  // Busca os dados (mesmo código acima)
-  // ... código de busca ...
+  // CORRIGIDO: esta função nunca buscava seus próprios dados — usava
+  // "pedidosFiltrados", uma variável que só existe dentro de
+  // exportarFinanceiro(), então clicar em "Exportar XLSX" sempre disparava
+  // um erro (ReferenceError) e nada era gerado. Agora busca os dados com o
+  // mesmo helper usado no CSV, garantindo os mesmos números.
+  const dados = await _finBuscarPedidosExport();
+  if (!dados) return;
+  const { peds, iniStr, fimStr } = dados;
+
+  if (!peds.length) {
+    alert("Nenhum pedido encontrado no período selecionado.");
+    return;
+  }
 
   // Cria planilha
   const ws = XLSX.utils.json_to_sheet(
-    pedidosFiltrados.map((p) => ({
+    peds.map((p) => ({
       ID: p.id,
       Data: new Date(p.created_at).toLocaleString("pt-BR"),
       Cliente: p.cliente_nome,
       Telefone: p.cliente_telefone,
       Tipo: p.tipo_entrega,
-      Pagamento: p.forma_pagamento,
+      Pagamento: finFormaEfetivaLabel(p),
       Subtotal: p.subtotal,
       Frete: p.frete_cobrado_cliente,
       Total: p.total_geral,
@@ -2398,11 +2510,7 @@ async function exportarFinanceiroXLSX() {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Vendas");
 
-  const hoje = new Date();
-  XLSX.writeFile(
-    wb,
-    `Relatorio_${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}-${String(hoje.getDate()).padStart(2, "0")}.xlsx`,
-  );
+  XLSX.writeFile(wb, `Relatorio_${iniStr}_a_${fimStr}.xlsx`);
 }
 
 // =====================================================
@@ -2837,16 +2945,24 @@ async function fecharCaixaResumo() {
     _sessaoCaixaAtiva = null;
     pdvCarregarPainelCaixa();
     ['card-faturamento','card-custo-moto','card-lucro','total-pix','total-transf',
-     'total-cartao','total-efetivo','total-nanota','total-fundo-abertura','card-ticket-medio'
+     'total-cartao','total-efetivo','total-nanota','total-fundo-abertura','card-ticket-medio',
+     'total-qr','total-sangria'
     ].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.innerText = 'Gs 0';
+    });
+    ['total-pix-nanota-label','total-transf-nanota-label','total-cartao-nanota-label',
+     'total-efetivo-nanota-label','total-qr-nanota-label'
+    ].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
     });
     const qEl = document.getElementById('card-qtd-pedidos');
     if (qEl) qEl.innerText = '0';
     _caixaState = { faturamento:0, custoEntregas:0, totalSaidas:0, totalEntradas:0,
                     totalPix:0, totalTransf:0, totalCartao:0, totalEfetivo:0,
-                    totalNaNota:0, totalQrCelular:0, fundoAbertura:0, qtdPedidos:0 };
+                    totalNaNota:0, totalQrCelular:0, fundoAbertura:0, qtdPedidos:0,
+                    qNaNota: { pix:0, transf:0, cartao:0, efetivo:0, qr:0 } };
     document.getElementById('modal-fechamento-caixa')?.remove();
     alert('✅ Caixa fechado com sucesso!');
   };
@@ -2894,6 +3010,8 @@ async function exportarCSVPowerBI() {
     "cliente_telefone",
     "endereco_entrega",
     "forma_pagamento",
+    "forma_pagamento_efetiva", // NOVO: método realmente recebido (resolve NaNota quitado e Multipagamento)
+    "conta_como_receita",      // NOVO: false p/ Nota em aberto e vendas Mensalista (já contabilizadas na compra do plano)
     "obs_pagamento",
     "subtotal",
     "desconto_cupom",
@@ -2931,6 +3049,8 @@ async function exportarCSVPowerBI() {
       p.cliente_telefone || "",
       p.endereco_entrega || "",
       p.forma_pagamento || "",
+      finFormaEfetivaLabel(p),
+      finPedidoContaComoReceita(p),
       p.obs_pagamento || "",
       p.subtotal || 0,
       p.desconto_cupom || 0,
@@ -2970,9 +3090,20 @@ async function exportarCSVPowerBI() {
 
 // ── PDF via janela de impressão ───────────────────────────
 async function exportarPDF() {
-  const pedidos = await _buscarDadosRelatorio();
-  if (!pedidos.length) {
+  const pedidosBrutos = await _buscarDadosRelatorio();
+  if (!pedidosBrutos.length) {
     alert("Nenhum pedido no período.");
+    return;
+  }
+
+  // CORRIGIDO: incluía Notas em aberto e vendas para Mensalista como se
+  // fossem receita recebida, e classificava por método comparando direto
+  // com forma_pagamento — não reconhecia notas quitadas nem pagamento
+  // dividido, então os cards de Pix/Dinheiro/Cartão não batiam com o total
+  // faturado nem com a tela do Financeiro. Agora usa a mesma lógica.
+  const pedidos = pedidosBrutos.filter(finPedidoContaComoReceita);
+  if (!pedidos.length) {
+    alert("Nenhum pedido com receita reconhecida no período.");
     return;
   }
 
@@ -2982,20 +3113,13 @@ async function exportarPDF() {
   const periodoLabel = `${elI?.value || hoje} a ${elF?.value || hoje}`;
 
   const fmt = (n) => "Gs " + (n || 0).toLocaleString("es-PY");
-  const total = pedidos.reduce((a, p) => a + (p.total_geral || 0), 0);
-  const totalPix = pedidos
-    .filter((p) => (p.forma_pagamento || "").toLowerCase().includes("pix"))
-    .reduce((a, p) => a + (p.total_geral || 0), 0);
-  const totalEfet = pedidos
-    .filter(
-      (p) =>
-        (p.forma_pagamento || "").toLowerCase().includes("efetivo") ||
-        (p.forma_pagamento || "").toLowerCase().includes("dinheiro"),
-    )
-    .reduce((a, p) => a + (p.total_geral || 0), 0);
-  const totalCard = pedidos
-    .filter((p) => (p.forma_pagamento || "").toLowerCase().includes("cart"))
-    .reduce((a, p) => a + (p.total_geral || 0), 0);
+  const total = pedidos.reduce((a, p) => a + (parseFloat(p.total_geral) || 0), 0);
+  const somaMetodo = (bucket) => pedidos.reduce((a, p) => a + finValorNoMetodo(p, bucket), 0);
+  const totalPix    = somaMetodo("pix");
+  const totalEfet   = somaMetodo("efetivo");
+  const totalCard   = somaMetodo("cartao");
+  const totalTransf = somaMetodo("transf");
+  const totalQr     = somaMetodo("qr");
 
   const rows = pedidos
     .map((p) => {
@@ -3009,7 +3133,7 @@ async function exportarPDF() {
       <td>${hora}</td>
       <td>${p.cliente_nome || "-"}</td>
       <td>${itens || "-"}</td>
-      <td>${p.forma_pagamento || "-"}</td>
+      <td>${finFormaEfetivaLabel(p) || "-"}</td>
       <td style="text-align:right">${fmt(p.total_geral)}</td>
     </tr>`;
     })
@@ -3046,6 +3170,8 @@ async function exportarPDF() {
     <div class="card"><div class="lbl">Pix</div><div class="val">${fmt(totalPix)}</div></div>
     <div class="card"><div class="lbl">Dinheiro</div><div class="val">${fmt(totalEfet)}</div></div>
     <div class="card"><div class="lbl">Cartão</div><div class="val">${fmt(totalCard)}</div></div>
+    <div class="card"><div class="lbl">Transferência</div><div class="val">${fmt(totalTransf)}</div></div>
+    <div class="card"><div class="lbl">QR</div><div class="val">${fmt(totalQr)}</div></div>
   </div>
   <table>
     <thead><tr><th>#</th><th>Data/Hora</th><th>Cliente</th><th>Itens</th><th>Pagamento</th><th>Total</th></tr></thead>
