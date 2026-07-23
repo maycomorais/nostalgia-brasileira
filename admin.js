@@ -4108,8 +4108,28 @@ async function salvarProduto() {
       inventario_id: inventarioId,
     };
 
-    if (id) await supa.from("produtos").update(dados).eq("id", id);
-    else await supa.from("produtos").insert([dados]);
+    // CORREÇÃO: .select() é obrigatório aqui. Sem ele, um UPDATE/INSERT
+    // bloqueado pela política de RLS da tabela `produtos` retorna
+    // { data: null, error: null } — ou seja, o botão "Salvar" fechava
+    // o modal e recarregava a lista como se tivesse dado certo, mesmo
+    // quando NADA foi gravado no banco. Com .select(), a resposta traz
+    // de volta a linha realmente afetada, permitindo detectar o
+    // falso-positivo (mesmo padrão já corrigido em subscriptionService.js).
+    const { data: linhaSalva, error: errSalvar } = id
+      ? await supa.from("produtos").update(dados).eq("id", id).select()
+      : await supa.from("produtos").insert([dados]).select();
+
+    if (errSalvar) {
+      alert("❌ Erro ao salvar produto: " + errSalvar.message);
+      return;
+    }
+    if (!linhaSalva || linhaSalva.length === 0) {
+      alert(
+        "⚠️ O produto não foi salvo — nenhuma linha foi alterada no banco.\n" +
+        "Verifique a política de RLS (UPDATE/INSERT) da tabela 'produtos' para o seu perfil.",
+      );
+      return;
+    }
 
     fecharModal("modal-produto");
     carregarProdutos();

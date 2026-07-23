@@ -212,14 +212,23 @@ function mensRenderPlanos() {
           <button onclick="mensAbrirEntrega(${p.id})"
             style="flex:2;padding:9px;background:#1a7a2e;color:#fff;border:none;border-radius:9px;cursor:pointer;font-size:0.83rem;font-weight:700;min-width:120px">
             ${tipo === 'kg' ? '⚖️' : '📦'} ${t('mens.registrar_entrega', 'Registrar Entrega')}
-          </button>` : (esgotado ? `
-          <div style="flex:2;padding:9px;background:#fef3c7;color:#92400e;border-radius:9px;font-size:0.82rem;font-weight:600;text-align:center;min-width:120px">
-            ✅ ${t('mens.plano_esgotado', 'Plano esgotado')}
-          </div>` : '')}
+          </button>` : ''}
+          ${esgotado || !p.ativo || vencendo ? `
+          <button onclick="mensAbrirModalRenovacao(${p.id})"
+            style="flex:2;padding:9px;background:#2980b9;color:#fff;border:none;border-radius:9px;cursor:pointer;font-size:0.83rem;font-weight:700;min-width:120px">
+            🔄 ${t('mens.renovar_plano', 'Renovar Plano')}
+          </button>` : ''}
           <button onclick="mensAbrirModalPlano(${p.id})"
-            style="flex:1;padding:9px;background:#3498db;color:#fff;border:none;border-radius:9px;cursor:pointer;font-size:0.83rem;font-weight:600;min-width:70px">
+            style="flex:1;padding:9px;background:#3498db;color:#fff;border:none;border-radius:9px;cursor:pointer;font-size:0.83rem;font-weight:600;min-width:70px"
+            title="${t('mens.editar_plano', 'Editar plano')}">
             ✏️
           </button>
+          ${(!esgotado && p.ativo && !vencendo) ? `
+          <button onclick="mensAbrirModalRenovacao(${p.id})"
+            style="flex:0 0 40px;padding:9px;background:#dbeafe;color:#2980b9;border:none;border-radius:9px;cursor:pointer;font-size:0.9rem;font-weight:700"
+            title="${t('mens.renovar_plano', 'Renovar plano')}">
+            🔄
+          </button>` : ''}
           <button onclick="mensVerHistorico(${p.id})"
             style="flex:1;padding:9px;background:#9b59b6;color:#fff;border:none;border-radius:9px;cursor:pointer;font-size:0.83rem;font-weight:600;min-width:70px">
             📋
@@ -256,19 +265,23 @@ function mensToggleTipoPlano() {
   }
 }
 
-function mensAbrirModalPlano(id = null) {
+function mensAbrirModalPlano(id = null, renovacao = false) {
   const p    = id ? _mens_planos.find(p => p.id === id) : null;
   const tipo = p ? _mensGetTipo(p) : 'un';
   const nota = p ? _mensGetNota(p) : '';
 
   const _mset = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
-  _mset('mens-plano-id',      p?.id || '');
-  _mset('mens-plano-cli-id',  p?.cliente_id || '');
-  _mset('mens-plano-produto', p?.produto_nome || '');
-  _mset('mens-plano-valor',   p?.valor_plano || '');
-  _mset('mens-plano-ini',     p?.data_inicio || new Date().toISOString().split('T')[0]);
-  _mset('mens-plano-fim',     p?.data_fim || '');
-  _mset('mens-plano-nota',    nota);
+  _mset('mens-plano-id',         p?.id || '');
+  _mset('mens-plano-cli-id',     p?.cliente_id || '');
+  _mset('mens-plano-renovacao',  renovacao ? '1' : '');
+  _mset('mens-plano-produto',    p?.produto_nome || '');
+  _mset('mens-plano-valor',      p?.valor_plano || '');
+  // NOVO: na renovação, o ciclo começa de novo — data de início hoje e data
+  // fim em branco (o usuário define o novo vencimento), em vez de manter as
+  // datas do ciclo anterior.
+  _mset('mens-plano-ini',        renovacao ? new Date().toISOString().split('T')[0] : (p?.data_inicio || new Date().toISOString().split('T')[0]));
+  _mset('mens-plano-fim',        renovacao ? '' : (p?.data_fim || ''));
+  _mset('mens-plano-nota',       nota);
 
   // Tipo
   const selTipo = document.getElementById('mens-plano-tipo');
@@ -286,7 +299,9 @@ function mensAbrirModalPlano(id = null) {
   mensToggleTipoPlano();
 
   const chkAtivo = document.getElementById('mens-plano-ativo');
-  if (chkAtivo) chkAtivo.checked = p ? p.ativo : true;
+  // NOVO: renovar sempre reativa o plano (útil para renovar um plano
+  // esgotado/inativo/vencido sem precisar reativar manualmente antes)
+  if (chkAtivo) chkAtivo.checked = renovacao ? true : (p ? p.ativo : true);
 
   // Popula select de clientes
   const selCli = document.getElementById('mens-plano-cli-sel');
@@ -312,24 +327,54 @@ function mensAbrirModalPlano(id = null) {
     };
   }
 
-  // Info de renovação se editando
+  // Título e botão do modal / info de renovação
+  const titulo   = document.getElementById('mens-plano-titulo');
+  const btnSalvar = document.getElementById('mens-plano-btn-salvar');
   const infoRenov = document.getElementById('mens-renov-info');
-  if (infoRenov) {
-    if (p) {
+
+  if (renovacao && p) {
+    const saldoFmt = _mensFmtQtd(p.quantidade_restante, tipo);
+    const saldoValorFmt = Math.round(
+      p.valor_restante != null ? p.valor_restante
+        : (p.quantidade_total > 0 ? (p.valor_plano / p.quantidade_total) * p.quantidade_restante : 0)
+    ).toLocaleString('es-PY');
+    if (titulo) titulo.innerHTML = `🔄 ${t('mens.renovar_plano', 'Renovar Plano')}`;
+    if (btnSalvar) btnSalvar.innerHTML = `🔄 ${t('mens.renovar_e_cobrar', 'Renovar e Cobrar')}`;
+    if (infoRenov) {
+      infoRenov.style.display = 'block';
+      infoRenov.innerHTML = `
+        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 14px;font-size:0.82rem;color:#1e40af;margin-bottom:14px">
+          🔄 <b>${t('mens.renovando_plano', 'Renovando o plano de')} ${p.clientes?.nome || ''}.</b><br>
+          ${t('mens.renovacao_reinicia', 'Isso inicia um novo ciclo: o saldo abaixo é substituído pelos valores novos que você definir (não é somado).')}<br>
+          ${saldoFmt !== '0' ? `${t('mens.saldo_atual_antes', 'Saldo atual antes da renovação:')} <b>${saldoFmt}</b> (Gs ${saldoValorFmt}).` : ''}
+        </div>`;
+    }
+  } else if (p) {
+    if (titulo) titulo.innerHTML = `✏️ ${t('mens.editar_plano', 'Editar Plano')}`;
+    if (btnSalvar) btnSalvar.innerHTML = t('mens.salvar_plano', 'Salvar Plano');
+    if (infoRenov) {
       const saldoFmt = _mensFmtQtd(p.quantidade_restante, tipo);
       infoRenov.style.display = 'block';
       infoRenov.innerHTML = `
         <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 14px;font-size:0.82rem;color:#1e40af;margin-bottom:14px">
-          ${t('mens.renovacao_info', '<b>Renovação:</b> Ao modificar a quantidade total, o saldo restante será ajustado proporcionalmente.<br>Saldo atual: <b>{qtd}</b>.').replace('{qtd}', saldoFmt)}
+          ${t('mens.renovacao_info', '<b>Ajuste manual:</b> Ao modificar a quantidade total, o saldo restante será ajustado proporcionalmente.<br>Saldo atual: <b>{qtd}</b>.<br>Para iniciar um novo ciclo do zero, use o botão 🔄 Renovar na lista de planos.').replace('{qtd}', saldoFmt)}
         </div>`;
-    } else {
-      infoRenov.style.display = 'none';
     }
+  } else {
+    if (titulo) titulo.innerHTML = `📋 ${t('mens.plano_mensalista', 'Plano Mensalista')}`;
+    if (btnSalvar) btnSalvar.innerHTML = t('mens.salvar_plano', 'Salvar Plano');
+    if (infoRenov) infoRenov.style.display = 'none';
   }
 
   const _mmp = document.getElementById('modal-mens-plano');
   if (_mmp) { _mmp.style.cssText += ';position:fixed!important;top:0;left:0;width:100%;height:100%;z-index:9999;'; _mmp.style.display = 'flex'; }
   setTimeout(() => document.getElementById('mens-plano-cli-sel')?.focus(), 100);
+}
+
+// Atalho para abrir o modal já em modo renovação
+function mensAbrirModalRenovacao(id) {
+  if (!id) return;
+  mensAbrirModalPlano(id, true);
 }
 
 async function mensSalvarPlano() {
@@ -354,16 +399,19 @@ async function mensSalvarPlano() {
   // Quantidade é opcional — 0 significa plano apenas por valor/saldo
   if (valor <= 0)     { alert(t('mens.alerta_valor', 'Insira o valor do plano.')); return; }
 
+  const renovacao = document.getElementById('mens-plano-renovacao')?.value === '1';
   const planoAtual = id ? _mens_planos.find(p => p.id == id) : null;
 
-  // NOVO: dinheiro novo que está efetivamente entrando agora — plano novo:
-  // o valor cheio; plano existente: só a diferença, se o valor subiu
-  // (reforço/recarga de saldo). Se o valor não mudou ou caiu, não há
-  // dinheiro novo entrando, então não pedimos forma de pagamento nem
-  // lançamos nada no caixa.
-  const valorACobrar = planoAtual
-    ? Math.max(0, valor - (planoAtual.valor_plano || 0))
-    : valor;
+  // NOVO: dinheiro novo que está efetivamente entrando agora.
+  // - Renovação: sempre o valor CHEIO do novo ciclo (é um novo pagamento).
+  // - Plano novo: o valor cheio.
+  // - Edição normal de plano existente: só a diferença, se o valor subiu
+  //   (reforço/recarga de saldo). Se não mudou ou caiu, não há dinheiro
+  //   novo entrando, então não pedimos forma de pagamento nem lançamos
+  //   nada no caixa.
+  const valorACobrar = renovacao
+    ? valor
+    : (planoAtual ? Math.max(0, valor - (planoAtual.valor_plano || 0)) : valor);
 
   let formaPag = null;
   if (valorACobrar > 0) {
@@ -391,7 +439,17 @@ async function mensSalvarPlano() {
   };
 
   let error;
-  if (id) {
+  if (id && renovacao) {
+    // CORRIGIDO: antes, renovar um plano exigia apagar e criar outro do
+    // zero (perdendo o histórico de entregas). Agora, renovar atualiza o
+    // MESMO plano (mantém histórico e vínculo com o cliente), mas reinicia
+    // o ciclo por completo: saldo passa a ser exatamente a nova quantidade
+    // e o novo valor definidos aqui — não é somado ao que sobrou do ciclo
+    // anterior.
+    payload.quantidade_restante = qtd_total;
+    payload.valor_restante      = valor;
+    ({ error } = await supa.from('planos_mensalistas').update(payload).eq('id', id));
+  } else if (id) {
     if (planoAtual && qtd_total !== planoAtual.quantidade_total) {
       const diferenca = qtd_total - planoAtual.quantidade_total;
       payload.quantidade_restante = Math.max(0, planoAtual.quantidade_restante + diferenca);
@@ -416,9 +474,11 @@ async function mensSalvarPlano() {
   if (valorACobrar > 0 && formaPag) {
     const clienteNome   = _mens_clientes.find(c => c.id === cliente_id)?.nome || 'Cliente';
     const usuario_email = document.getElementById('user-email')?.innerText || 'admin';
-    const descricao = planoAtual
-      ? `Mensalista - Reforço de saldo: ${produto_nome} (${clienteNome}) - Forma: ${formaPag}`
-      : `Mensalista - Novo plano: ${produto_nome} (${clienteNome}) - Forma: ${formaPag}`;
+    const descricao = renovacao
+      ? `Mensalista - Renovação de plano: ${produto_nome} (${clienteNome}) - Forma: ${formaPag}`
+      : planoAtual
+        ? `Mensalista - Reforço de saldo: ${produto_nome} (${clienteNome}) - Forma: ${formaPag}`
+        : `Mensalista - Novo plano: ${produto_nome} (${clienteNome}) - Forma: ${formaPag}`;
     const sucesso = await registrarMovimentacaoCaixa({
       tipo: 'entrada',
       valor: valorACobrar,

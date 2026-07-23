@@ -1238,10 +1238,56 @@
           <option value="producao">Producción</option>
         </select>
       </div>
+      <div class="form-group">
+        <label>IVA Padrão</label>
+        <select id="fact-iva-default" class="form-control">
+          <option value="10">10% (Geral)</option>
+          <option value="5">5% (Reduzido)</option>
+          <option value="exento">Exento</option>
+        </select>
+        <small style="color:#888;">Aplicado a qualquer produto sem IVA específico definido abaixo.</small>
+      </div>
     </div>
     <button class="btn btn-primary" onclick="salvarConfigFacturacion()" style="margin-top:12px;">
       <i class="fas fa-save"></i> Guardar Configuración
     </button>
+  </div>
+
+  <!-- IVA por Produto -->
+  <div class="card" style="margin-bottom:16px; padding:16px;">
+    <div class="cfg-section-title">
+      <i class="fas fa-percent"></i> IVA por Producto
+    </div>
+    <small style="color:#888; display:block; margin-bottom:10px;">
+      Defina o IVA de cada produto do cardápio. Produtos não listados aqui usam o IVA Padrão configurado acima.
+    </small>
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      <select id="fact-iva-prod-sel" class="form-control" style="flex:2; min-width:200px;">
+        <option value="">— Selecione um produto —</option>
+      </select>
+      <select id="fact-iva-prod-valor" class="form-control" style="flex:1; min-width:140px;">
+        <option value="10">10% (Geral)</option>
+        <option value="5">5% (Reduzido)</option>
+        <option value="exento">Exento</option>
+      </select>
+      <button class="btn btn-success" onclick="factAdicionarIvaProduto()">
+        <i class="fas fa-plus"></i> Agregar
+      </button>
+    </div>
+    <div style="overflow-x:auto; margin-top:14px;">
+      <table class="table" style="margin:0;">
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th>IVA</th>
+            <th style="text-align:center;">—</th>
+          </tr>
+        </thead>
+        <tbody id="fact-iva-produtos-tbody">
+          <tr><td colspan="3" style="text-align:center;color:#aaa;padding:14px;">Carregando...</td></tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 
   <!-- Emitir factura a partir de pedido -->
@@ -2887,17 +2933,19 @@
     <script src="filiais.js"></script>
     <script src="mensalistas.js"></script>
     <script src="notas.js"></script>
+    <script src="facturacion.js"></script>
 
-<!-- Modal: Novo/Editar Plano -->
+<!-- Modal: Novo/Editar/Renovar Plano -->
 <div id="modal-mens-plano"
   style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;padding:16px">
   <div style="background:#fff;border-radius:18px;padding:28px;width:100%;max-width:520px;max-height:92vh;overflow-y:auto;box-shadow:0 24px 60px rgba(0,0,0,0.25)">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-      <h3 style="font-size:1.1rem;font-weight:700">📋 <span data-i18n="mens.plano_mensalista">Plano Mensalista</span></h3>
+      <h3 style="font-size:1.1rem;font-weight:700" id="mens-plano-titulo">📋 <span data-i18n="mens.plano_mensalista">Plano Mensalista</span></h3>
       <button onclick="fecharModal('modal-mens-plano')" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:#6b7280">×</button>
     </div>
     <input type="hidden" id="mens-plano-id">
     <input type="hidden" id="mens-plano-cli-id">
+    <input type="hidden" id="mens-plano-renovacao">
     <div id="mens-renov-info"></div>
     <div style="display:grid;gap:14px">
       <div>
@@ -2956,7 +3004,7 @@
     </div>
     <div style="display:flex;gap:10px;margin-top:22px">
       <button onclick="fecharModal('modal-mens-plano')" style="flex:1;padding:11px;border:1.5px solid #e5e7eb;background:#fff;border-radius:9px;font-weight:600;cursor:pointer;font-size:0.9rem;color:#4b5563" data-i18n="geral.cancelar">Cancelar</button>
-      <button onclick="mensSalvarPlano()" style="flex:2;padding:11px;background:#1a7a2e;color:#fff;border:none;border-radius:9px;font-weight:700;cursor:pointer;font-size:0.9rem" data-i18n="mens.salvar_plano">Salvar Plano</button>
+      <button onclick="mensSalvarPlano()" id="mens-plano-btn-salvar" style="flex:2;padding:11px;background:#1a7a2e;color:#fff;border:none;border-radius:9px;font-weight:700;cursor:pointer;font-size:0.9rem" data-i18n="mens.salvar_plano">Salvar Plano</button>
     </div>
   </div>
 </div>
